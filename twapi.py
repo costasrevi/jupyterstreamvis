@@ -1,8 +1,23 @@
+from pyexpat.errors import XML_ERROR_NOT_STANDALONE
 import tensorwatch as tw
 # from matplotlib.widgets import Slider, Button, RadioButtons
 from ipywidgets import *
+from ipywidgets import widgets
 
 class twapi:
+
+    my_slider = widgets.IntSlider(
+        value=10,
+        min=1,
+        max=100,
+        step=1,
+        description='My Slider:',
+        disabled=False,
+        continuous_update=False,
+        orientation='horizontal',
+        readout=True,
+        readout_format='d'
+    )
     def __init__(self):
         self.client = tw.WatcherClient()
         return
@@ -12,16 +27,23 @@ class twapi:
         self.streamdata = self.client.create_stream(expr=expr)
         return self.streamdata
 
-    def updateFunc(self,x,streamdata):
-        self.line_plotx = tw.Visualizer(streamdata , vis_type='line',window_width=x)#,yrange=(0,1)),window_width=10#,Date=True
+    def updateFunc(self,num):
+        # print(x)
+        self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=num)#,yrange=(0,1)),window_width=10#,Date=True
+        # print(type(x))
+        # print(x)
         return self.line_plotx
+        # return
 
-    def draw(self,streamdata):
+    def draw(self):
         x=10
-        # interact(twapi.updateFunc(self,x,streamdata), x=10);
-        self.line_plotx = tw.Visualizer(streamdata , vis_type='line',window_width=50)#,yrange=(0,1)),window_width=10#,Date=True
+        # self.temp=interact(self.updateFunc(x), x=10);
+        self.widget=widgets.interact(self.updateFunc, num = self.my_slider)
+        # print(type(self.temp))
+        # print(self.temp)
+        # self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=50)#,yrange=(0,1)),window_width=10#,Date=True
         print(type(self.line_plotx))
-        return self.line_plotx
+        return self.line_plotx,self.widget
 
     # class connector:
     #     def __init__(self,topic):
