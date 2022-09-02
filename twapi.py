@@ -11,7 +11,7 @@ class twapi:
         min=1,
         max=100,
         step=1,
-        description='My Slider:',
+        description='Window Size : ',
         disabled=False,
         continuous_update=False,
         orientation='horizontal',
@@ -19,32 +19,44 @@ class twapi:
         readout_format='d'
     )
     def __init__(self):
+        # self.out = widgets.Output(layout = widgets.Layout(height='300px'))
+        self.out = widgets.Output(layout={})
+        # self.out = widgets.Output(layout={'border': '1px solid black'})
         self.client = tw.WatcherClient()
         return
 
     def stream(self,expr):
         self.expr=expr
         self.streamdata = self.client.create_stream(expr=expr)
-        return self.streamdata
+        # return self.streamdata
+        return
 
     def updateFunc(self,num):
         # print(x)
+        self.out.clear_output()
         self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=num)#,yrange=(0,1)),window_width=10#,Date=True
+        self.line_plotx.show()
         # print(type(x))
         # print(x)
-        return self.line_plotx
-        # return
+        # return self.line_plotx
+        return
 
     def draw(self):
-        x=10
+        # display(self.out)
+        # self.out.clear_output()
+        # self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=x)
+        # self.line_plotx.close()
+        # self.line_plotx.show()
         # self.temp=interact(self.updateFunc(x), x=10);
+        # self.line_plotx.show()
         self.widget=widgets.interact(self.updateFunc, num = self.my_slider)
         # print(type(self.temp))
         # print(self.temp)
         # self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=50)#,yrange=(0,1)),window_width=10#,Date=True
-        print(type(self.line_plotx))
-        return self.line_plotx,self.widget
-
+        # print(type(self.line_plotx))
+        # return self.widget
+        return 
+    # @widgets.interact(num = (0,10))
     # class connector:
     #     def __init__(self,topic):
     #         self.topic=topic  
