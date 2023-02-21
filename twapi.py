@@ -1,6 +1,7 @@
 from pyexpat.errors import XML_ERROR_NOT_STANDALONE
 import tensorwatch as tw
 # from matplotlib.widgets import Slider, Button, RadioButtons
+from IPython.display import clear_output
 from ipywidgets import *
 from ipywidgets import widgets
 
@@ -18,10 +19,20 @@ class twapi:
         readout=True,
         readout_format='d'
     )
+    my_slider2 = widgets.IntSlider(
+        value=10,
+        min=1,
+        max=100,
+        step=1,
+        description='Window width : ',
+        disabled=False,
+        continuous_update=False,
+        orientation='horizontal',
+        readout=True,
+        readout_format='d'
+    )
     def __init__(self):
-        # self.out = widgets.Output(layout = widgets.Layout(height='300px'))
         self.out = widgets.Output(layout={})
-        # self.out = widgets.Output(layout={'border': '1px solid black'})
         self.client = tw.WatcherClient()
         return
 
@@ -29,40 +40,33 @@ class twapi:
         self.expr=expr
         self.streamdata = self.client.create_stream(expr=expr)
         # return self.streamdata
+        return self
+
+    def updateFunc(self,num,num2):
+        self.out.clear_output()
+        clear_output(wait=True)
+        #if hasattr(self, 'line_plotx'):
+        #    self.line_plotx.close()
+        self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=self.my_slider.value,window_size=self.my_slider2.value)#,yrange=(0,1)),window_width=10#,Date=True
+        self.line_plotx.show()
         return
 
-    def updateFunc(self,num):
-        # print(x)
-        self.out.clear_output()
-        self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=num)#,yrange=(0,1)),window_width=10#,Date=True
-        self.line_plotx.show()
-        # print(type(x))
-        # print(x)
-        # return self.line_plotx
-        return
+    # def updateFunc2(self,num):
+    #     self.out.clear_output()
+    #     self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=self.my_slider,window_size=num)#,yrange=(0,1)),window_width=10#,Date=True
+    #     self.line_plotx.show()
+    #     return
 
     def draw(self):
-        # display(self.out)
         # self.out.clear_output()
-        # self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=x)
-        # self.line_plotx.close()
-        # self.line_plotx.show()
-        # self.temp=interact(self.updateFunc(x), x=10);
-        # self.line_plotx.show()
-        self.widget=widgets.interact(self.updateFunc, num = self.my_slider)
-        # print(type(self.temp))
-        # print(self.temp)
-        # self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=50)#,yrange=(0,1)),window_width=10#,Date=True
-        # print(type(self.line_plotx))
-        # return self.widget
-        return 
-    # @widgets.interact(num = (0,10))
-    # class connector:
-    #     def __init__(self,topic):
-    #         self.topic=topic  
-    # def connector(topic,host,parsetype="json",cluster_size=1,type="kafka"):
-    #     twapi.connector2(twapi.self,topic,host,parsetype="json",cluster_size=1,type="kafka")
-    
+        #self.line_plotx = tw.Visualizer(self.streamdata , vis_type='line',window_width=self.my_slider.value,window_size=self.my_slider2.value)#,yrange=(0,1)),window_width=10#,Date=True
+        widgets.interact(self.updateFunc, num = self.my_slider,num2 = self.my_slider2)
+        #self.line_plotx.show()
+        #widgets.interact(self.updateFunc, num = self.my_slider2)
+        # self.widget2=widgets.interact(self.updateFunc, num = self.my_slider2)
+        return
+
+
     def connector(self,topic,host,parsetype="json",cluster_size=1,type="kafka"):
         self.topic=topic
         # self.client = tw.WatcherClient()
