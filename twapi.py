@@ -30,6 +30,14 @@ class twapi:
         icon='check' # (FontAwesome names without the `fa-` prefix)
     )
 
+    button2 = widgets.Button(
+        description='Apply',
+        disabled=False,
+        button_style='', # 'success', 'info', 'warning', 'danger' or ''
+        tooltip='Click me to apply changes to the stream',
+        icon='check' # (FontAwesome names without the `fa-` prefix)
+    )
+
     tab = widgets.Tab()
     
 
@@ -73,8 +81,8 @@ class twapi:
 
     def __init__(self):
         self.out = widgets.Output(layout={})
-        self.tab.children  = [self.my_slider,self.my_slider2,self.button,self.datebutton,self.offsetbutton,self.dimhistorybutton,self.colorpicker]  
-        titles = ['Window Size','Window Width','Reset','DateFormat','OffSet','dimHistory','colorpicker']    
+        self.tab.children  = [self.my_slider,self.my_slider2,self.datebutton,self.offsetbutton,self.dimhistorybutton,self.colorpicker]  
+        titles = ['Window Size','Window Width','DateFormat','OffSet','dimHistory','colorpicker']    
         for i in range(len(titles)):
             self.tab.set_title(i, titles[i])
         self.client = tw.WatcherClient()
@@ -87,12 +95,26 @@ class twapi:
         self.streamdata = self.client.create_stream(expr=expr)
         return self
 
-    def updateFunc(self,num,num2,datebutton,offsetbutton,colorpicker):
+    def updateFunc(self):#,num,num2,datebutton,offsetbutton,colorpicker):
         self.out.clear_output()
         # self.button.on_click(self.reset)
         self.line_plotx  = tw.Visualizer(self.streamdata , vis_type='line',window_width=self.my_slider.value,window_size=self.my_slider2.value,Date=self.datebutton.value,useOffset=self.offsetbutton.value,dim_history=self.dimhistorybutton.value,color=self.colorpicker.value)#,yrange=(0,1)),window_width=10#,Date=True
         self.line_plotx.show()
         return None
+
+    def updateFunc2(self,d):
+        self.out.clear_output()
+        # self.button.on_click(self.reset)
+        self.line_plotx  = tw.Visualizer(self.streamdata , vis_type='line',window_width=self.my_slider.value,window_size=self.my_slider2.value,Date=self.datebutton.value,useOffset=self.offsetbutton.value,dim_history=self.dimhistorybutton.value,color=self.colorpicker.value)#,yrange=(0,1)),window_width=10#,Date=True
+        with self.out:
+            self.line_plotx.show()
+        return
+        # self.line_plotx.show()
+        # return display(self.line_plotx.show())
+
+    def apply(self,d):
+        self.out.clear_output()
+        return
 
     def reset(self,d):
         self.my_slider.value=self.default_value
@@ -105,10 +127,13 @@ class twapi:
         return
 
     def draw(self):
-        widgets.interact(self.updateFunc, num = self.my_slider,num2 = self.my_slider2,datebutton=self.datebutton,offsetbutton=self.offsetbutton,dimhistorybutton=self.dimhistorybutton,colorpicker=self.colorpicker)
-        display(self.button, self.out,self.tab)
-        # widgets.interact(self.button.on_click(self.reset))
-        # self.button.on_click(self.reset)
+        # widgets.interact(self.updateFunc)
+        widgets.interact(self.button2.on_click(self.updateFunc2))
+        # widgets.interact(self.updateFunc, num = self.my_slider,num2 = self.my_slider2,datebutton=self.datebutton,offsetbutton=self.offsetbutton,dimhistorybutton=self.dimhistorybutton,colorpicker=self.colorpicker)
+        display(self.button,self.button2, self.out,self.tab)
+        widgets.interact(self.button.on_click(self.reset))
+        #self.button2.on_click(self.updateFunc2)
+        #self.button.on_click(self.reset)
         return
 
     def connector(self,topic,host,parsetype="json",cluster_size=1,type="kafka"):
