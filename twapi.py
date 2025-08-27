@@ -4,6 +4,7 @@ from . import pykafka_connector as pyc
 from IPython.display import display
 from ipywidgets import widgets
 import asyncio
+import time
 
 
 class twapi:
@@ -16,6 +17,7 @@ class twapi:
         self.out = widgets.Output(layout={})
 
         # Initialize UI widgets
+        self.update_interval = 0.5  # Delay in seconds
         self.my_slider = widgets.IntSlider(value=self.default_value, min=1, max=100, step=1, description="Window Size:")
         self.my_slider2 = widgets.IntSlider(value=self.default_value, min=1, max=100, step=1, description="Window Width:")
         self.datebutton = widgets.Checkbox(value=False, description="Date")
@@ -23,7 +25,7 @@ class twapi:
         self.dimhistorybutton = widgets.Checkbox(value=True, description="Dim History")
         self.colorpicker = widgets.ColorPicker(value="blue", description="Pick a Color")
         
-        self.button_reset = widgets.Button(description="Reset", tooltip="Reset stream settings")
+        self.button_reset = widgets.Button(description="Reset", tooltip="Reset stream settings")        
         self.button_apply = widgets.Button(description="Apply", tooltip="Apply changes to the stream")
 
         # Organize widgets in a tab
@@ -35,14 +37,28 @@ class twapi:
             self.tab.set_title(i, title)
 
         # Event handlers
+        self._last_update = time.time()
         self.button_reset.on_click(self.reset)
-        self.button_apply.on_click(self.update_visualizer)
+        self.button_apply.on_click(self.apply_with_debounce)
+
+        # Observe widget changes directly
+        self.my_slider.observe(self.apply_with_debounce, names='value')
+        self.my_slider2.observe(self.apply_with_debounce, names='value')
+        self.colorpicker.observe(self.apply_with_debounce, names='value')
+
 
     def stream(self, expr):
         """Creates a TensorWatch stream from an expression."""
         self.expr = expr
         self.streamdata = self.client.create_stream(expr=expr)
         return self
+
+    def apply_with_debounce(self, _=None):
+        """Debounced apply function to prevent too frequent updates."""
+        now = time.time()
+        if now - self._last_update > self.update_interval:
+            self.update_visualizer()
+            self._last_update = now
 
     def update_visualizer(self, _=None):
         """Updates the TensorWatch visualizer with the latest widget values."""
@@ -90,7 +106,7 @@ class twapi:
         except Exception as e:
             print(f"Async error updating visualizer: {e}")
 
-    def draw(self):
+    def draw(self):        
         """Displays the UI for controlling the visualization."""
         display(self.button_reset, self.button_apply, self.out, self.tab)
 
