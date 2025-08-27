@@ -1,147 +1,109 @@
-from pyexpat.errors import XML_ERROR_NOT_STANDALONE
 import tensorwatch as tw
+from . import kafka_connector as kc
+from . import pykafka_connector as pyc
 from IPython.display import display
-from ipywidgets import *
 from ipywidgets import widgets
+import asyncio
 
 
 class twapi:
-
-    default_value=10
-
-    my_slider = widgets.IntSlider(
-        value=default_value,
-        min=1,
-        max=100,
-        step=1,
-        description='Window Size : ',
-        disabled=False,
-        continuous_update=False,
-        orientation='horizontal',
-        readout=True,
-        readout_format='d'
-    )
-
-    button = widgets.Button(
-        description='Reset',
-        disabled=False,
-        button_style='', # 'success', 'info', 'warning', 'danger' or ''
-        tooltip='Click me to reset the stream',
-        icon='check' # (FontAwesome names without the `fa-` prefix)
-    )
-
-    button2 = widgets.Button(
-        description='Apply',
-        disabled=False,
-        button_style='', # 'success', 'info', 'warning', 'danger' or ''
-        tooltip='Click me to apply changes to the stream',
-        icon='check' # (FontAwesome names without the `fa-` prefix)
-    )
-
-    tab = widgets.Tab()
-    
-
-    my_slider2 = widgets.IntSlider(
-        value=default_value,
-        min=1,
-        max=100,
-        step=1,
-        description='Window width : ',
-        disabled=False,
-        continuous_update=False,
-        orientation='horizontal',
-        readout=True,
-        readout_format='d'
-    )
-
-    datebutton = widgets.Checkbox(
-        value=False,
-        description='Date',
-        disabled=False
-    )
-
-    offsetbutton = widgets.Checkbox(
-        value=False,
-        description='useOffset',
-        disabled=False
-    )
-
-    dimhistorybutton = widgets.Checkbox(
-        value=True,
-        description='dim_history',
-        disabled=False
-    )
-
-    colorpicker = widgets.ColorPicker(
-        concise=False,
-        description='Pick a color',
-        value='blue',
-        disabled=False
-    )
+    """TensorWatch API Wrapper for Kafka Streaming and Visualization"""
 
     def __init__(self):
-        self.out = widgets.Output(layout={})
-        self.tab.children  = [self.my_slider,self.my_slider2,self.datebutton,self.offsetbutton,self.dimhistorybutton,self.colorpicker]  
-        titles = ['Window Size','Window Width','DateFormat','OffSet','dimHistory','colorpicker']    
-        for i in range(len(titles)):
-            self.tab.set_title(i, titles[i])
+        self.default_value = 10
+        self.visualizer = None  # Initialize visualizer as None
         self.client = tw.WatcherClient()
-        # self.tab.set_title(0,"Window_Size2")
-        # self.default_value=self.default_value
-        return
+        self.out = widgets.Output(layout={})
 
-    def stream(self,expr):
-        self.expr=expr
+        # Initialize UI widgets
+        self.my_slider = widgets.IntSlider(value=self.default_value, min=1, max=100, step=1, description="Window Size:")
+        self.my_slider2 = widgets.IntSlider(value=self.default_value, min=1, max=100, step=1, description="Window Width:")
+        self.datebutton = widgets.Checkbox(value=False, description="Date")
+        self.offsetbutton = widgets.Checkbox(value=False, description="Use Offset")
+        self.dimhistorybutton = widgets.Checkbox(value=True, description="Dim History")
+        self.colorpicker = widgets.ColorPicker(value="blue", description="Pick a Color")
+        
+        self.button_reset = widgets.Button(description="Reset", tooltip="Reset stream settings")
+        self.button_apply = widgets.Button(description="Apply", tooltip="Apply changes to the stream")
+
+        # Organize widgets in a tab
+        self.tab = widgets.Tab(children=[
+            self.my_slider, self.my_slider2, self.datebutton, self.offsetbutton, self.dimhistorybutton, self.colorpicker
+        ])
+        tab_titles = ["Window Size", "Window Width", "Date Format", "Offset", "Dim History", "Color Picker"]
+        for i, title in enumerate(tab_titles):
+            self.tab.set_title(i, title)
+
+        # Event handlers
+        self.button_reset.on_click(self.reset)
+        self.button_apply.on_click(self.update_visualizer)
+
+    def stream(self, expr):
+        """Creates a TensorWatch stream from an expression."""
+        self.expr = expr
         self.streamdata = self.client.create_stream(expr=expr)
         return self
 
-    def updateFunc(self):#,num,num2,datebutton,offsetbutton,colorpicker):
-        self.out.clear_output()
-        # self.button.on_click(self.reset)
-        self.line_plotx  = tw.Visualizer(self.streamdata , vis_type='line',window_width=self.my_slider.value,window_size=self.my_slider2.value,Date=self.datebutton.value,useOffset=self.offsetbutton.value,dim_history=self.dimhistorybutton.value,color=self.colorpicker.value)#,yrange=(0,1)),window_width=10#,Date=True
-        self.line_plotx.show()
-        return None
+    def update_visualizer(self, _=None):
+        """Updates the TensorWatch visualizer with the latest widget values."""
+        try:
+            if self.visualizer is None:
+                # Create visualizer only if it doesn't exist
+                self.out.clear_output()
+                self.visualizer = tw.Visualizer(
+                    self.streamdata,
+                    vis_type="line",
+                    window_width=self.my_slider.value,
+                    window_size=self.my_slider2.value,
+                    Date=self.datebutton.value,
+                    useOffset=self.offsetbutton.value,
+                    dim_history=self.dimhistorybutton.value,
+                    color=self.colorpicker.value,
+                )
+                with self.out:
+                    self.visualizer.show()
+            else:
+                # Update existing visualizer properties
+                await self._async_update_visualizer()
+        except Exception as e:
+            print(f"Error updating visualizer: {e}")
 
-    def updateFunc2(self,d):
+    def reset(self, _=None):
+        """Resets all widget values to their defaults."""
+        self.my_slider.value = self.default_value
+        self.my_slider2.value = self.default_value
+        self.datebutton.value = False
+        self.offsetbutton.value = False
+        self.dimhistorybutton.value = True
+        self.colorpicker.value = "blue"
+        
+        # Clear the output and set visualizer to None
         self.out.clear_output()
-        # self.button.on_click(self.reset)
-        self.line_plotx  = tw.Visualizer(self.streamdata , vis_type='line',window_width=self.my_slider.value,window_size=self.my_slider2.value,Date=self.datebutton.value,useOffset=self.offsetbutton.value,dim_history=self.dimhistorybutton.value,color=self.colorpicker.value)#,yrange=(0,1)),window_width=10#,Date=True
-        with self.out:
-            self.line_plotx.show()
-        return
-        # self.line_plotx.show()
-        # return display(self.line_plotx.show())
+        self.visualizer = None
 
-    def apply(self,d):
-        self.out.clear_output()
-        return
-
-    def reset(self,d):
-        self.my_slider.value=self.default_value
-        self.my_slider2.value=self.default_value
-        self.datebutton.value=False
-        self.offsetbutton.value=False
-        self.dimhistorybutton.value=True
-        self.colorpicker.value='blue'
-        self.out.clear_output()
-        return
+    async def _async_update_visualizer(self):
+        """Asynchronously updates the visualizer properties."""
+        try:
+            # Perform updates in a non-blocking manner
+            self.visualizer.window_width = self.my_slider.value
+            self.visualizer.window_size = self.my_slider2.value
+        except Exception as e:
+            print(f"Async error updating visualizer: {e}")
 
     def draw(self):
-        # widgets.interact(self.updateFunc)
-        widgets.interact(self.button2.on_click(self.updateFunc2))
-        # widgets.interact(self.updateFunc, num = self.my_slider,num2 = self.my_slider2,datebutton=self.datebutton,offsetbutton=self.offsetbutton,dimhistorybutton=self.dimhistorybutton,colorpicker=self.colorpicker)
-        display(self.button,self.button2, self.out,self.tab)
-        widgets.interact(self.button.on_click(self.reset))
-        #self.button2.on_click(self.updateFunc2)
-        #self.button.on_click(self.reset)
-        return
+        """Displays the UI for controlling the visualization."""
+        display(self.button_reset, self.button_apply, self.out, self.tab)
 
-    def connector(self,topic,host,parsetype="json",cluster_size=1,type="kafka"):
-        self.topic=topic
-        if type=="kafka":
-            return tw.kafka_connector(topic=topic,hosts=host,parsetype=parsetype,cluster_size=cluster_size)
-        elif type=="pykafka":
-            return tw.pykafka_connector(topic=topic,hosts=host,parsetype=parsetype,cluster_size=cluster_size)
+    def connector(self, topic, host, parsetype="json", cluster_size=1, conn_type="kafka"):
+        """Returns a Kafka or PyKafka connector."""
+        if conn_type == "kafka":
+            return kc.kafka_connector(topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size)
+        elif conn_type == "pykafka":
+            return pyc.pykafka_connector(topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size)
         else:
-            print("Error wrong connector selected")
-        
+            raise ValueError("Invalid connector type. Choose 'kafka' or 'pykafka'.")
+
+    async def some_async_function(self):
+        """Example of an async function that can be called."""
+        await asyncio.sleep(1)
+        print("Async function completed")
