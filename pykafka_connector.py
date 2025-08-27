@@ -9,7 +9,7 @@ from queue import Queue
 import json
 import pickle
 try:
-    import xmltodict as xmltodict   
+    import xmltodict as xmltodict
 except:
     pass
 try:
@@ -17,7 +17,7 @@ try:
     from avro.io import DatumReader
     import io
     from avro.io import BinaryDecoder
-except:
+except ImportError:
     pass
 try:
     from protobuf_to_dict import protobuf_to_dict
@@ -29,6 +29,7 @@ import random
 
 def get_ioloop():
     import IPython, zmq
+
     ipython = IPython.get_ipython()
     if ipython and hasattr(ipython, 'kernel'):
         return zmq.eventloop.ioloop.IOLoop.instance()
@@ -55,11 +56,11 @@ ioloop = get_ioloop()
 #     consumer.start()
 
 class pykafka_connector(threading.Thread):
-                
-    def quit(self):
-        self._quit.set()        
 
-    def __init__(self, hosts:str=None, topic:str=None, parsetype:str=None, parser_extra:str=None, queue_length:int=None, cluster_size:int=1,
+    def quit(self):
+        self._quit.set()
+
+    def __init__(self, hosts: str = None, topic: str = None, parsetype: str = None, parser_extra: str = None, queue_length: int = None, cluster_size: int = 1,
     #pykfka settings        
     cluster:str=None, consumer_group:bytes=bytes("default", 'utf-8'), partitions:str=None, probuf_message:str=None, zookeeper_hosts:str='127.0.0.1:2181',
     fetch_message_max_bytes:int=1024 * 1024, num_consumer_fetchers:int=1, auto_commit_enable:bool=False,
@@ -67,7 +68,7 @@ class pykafka_connector(threading.Thread):
     offsets_channel_backoff_ms:int=1000, offsets_commit_max_retries:int=5, auto_offset_reset:OffsetType=OffsetType.EARLIEST, consumer_timeout_ms:int=-1, auto_start:bool=True,
     reset_offset_on_start:bool=False, compacted_topic:bool=False, generation_id:int=-1, consumer_id:bool=b'',  reset_offset_on_fetch:bool=True, decode:str="utf-8", 
     scema_path:str=None, random_sampling:int=None, countmin_width:int=None, countmin_depth:int=None):#deserializer:function=None,
-        super().__init__()
+
         self.hosts = hosts
         self.topic = topic
         self.cluster_size=cluster_size
@@ -82,11 +83,11 @@ class pykafka_connector(threading.Thread):
         self.queue_length = queue_length
         if self.queue_length is None:
             self.data=Queue(maxsize=50000)
-        else:
+        else:        
             self.data=Queue(maxsize=self.queue_length)
         self._quit = threading.Event()
         # self._quit = threading.Event()
-        #pykfka
+        # pykfka
         self.cluster, self.consumer_group, self.partitions, self.zookeeper_hosts = cluster, consumer_group, partitions, zookeeper_hosts
         self.fetch_message_max_bytes, self.num_consumer_fetchers = \
             fetch_message_max_bytes, num_consumer_fetchers
@@ -95,8 +96,8 @@ class pykafka_connector(threading.Thread):
         self.fetch_wait_max_ms, self.offsets_channel_backoff_ms, self.offsets_commit_max_retries, self.auto_offset_reset, self.consumer_timeout_ms = \
             fetch_wait_max_ms, offsets_channel_backoff_ms, offsets_commit_max_retries, auto_offset_reset, consumer_timeout_ms
         self.auto_start, self.reset_offset_on_start, self.compacted_topic, self.generation_id, self.consumer_id, self.reset_offset_on_fetch= \
-            auto_start, reset_offset_on_start, compacted_topic, generation_id, consumer_id, reset_offset_on_fetch
-        # self.deserializer = deserializer
+            auto_start, reset_offset_on_start, compacted_topic, generation_id, consumer_id, reset_offset_on_fetch        
+            # self.deserializer = deserializer
         #memory optimazation limiting the number of stored data
         self.cms={}
         self.countmin_depth = countmin_depth
@@ -107,57 +108,71 @@ class pykafka_connector(threading.Thread):
             try:
                 schema = avro.schema.parse(parser_extra)
                 self.reader = DatumReader(schema)
-            except: 
-                print("avro schema error or avro not installed"+ json.loads(parser_extra))
+            except Exception as e:
+                print(f"avro schema error or avro not installed: {e}")
                 return
         elif self.parsetype.lower()=='protobuf' :
             try:
                 import sys
                 import importlib
-                sys.path.append(scema_path)#scema_path change them
+                sys.path.append(scema_path)  # scema_path change them
                 mymodule = importlib.import_module(parser_extra)
                 method_to_call = getattr(mymodule, probuf_message)
                 self.mymodule = method_to_call()
-            except: 
-                print("Error importing protobuf")
+            except Exception as e:
+                print(f"Error importing protobuf: {e}")
+
         self.start()
 
     #trying to add deferent libraries for deserializing the kafka messages
     def myparser(self,message):#,parsetype=None,parser_extra=None):
-        if self.parsetype is None or self.parsetype.lower()=='json' :
-            return json.loads(message)
-        elif self.parsetype.lower()=='pickle' :
-            return pickle.loads(message)
-        elif self.parsetype.lower()=='xml' :
             try:
-                xml = xmltodict.parse(message)
-                return xml["root"]
-            except Exception as ex: # pylint: disable=broad-except
-                print('Exception occured : ' + message)
-        elif self.parsetype.lower()=='protobuf' :
-            try:
-                temp_message=self.mymodule
-                temp_message.ParseFromString(message)
-                my_message_dict = protobuf_to_dict(temp_message)
-                return my_message_dict
-            except:
-                print("Error on protobuff parser")
-        elif self.parsetype.lower()=='avro' :
-            try:
-                message_bytes = io.BytesIO(message)
-                decoder = BinaryDecoder(message_bytes)
-                event_dict = self.reader.read(decoder)
-                print(event_dict)
-                return event_dict
-            except:
-                print("Avro error ,perhpas avro not installed")
-        return 'error:unkown type of parsing'
+            if self.parsetype is None or self.parsetype.lower()=='json' :
+                return json.loads(message)
+            elif self.parsetype.lower()=='pickle' :
+                return pickle.loads(message)
+            elif self.parsetype.lower()=='xml' :
+                try:
+                    xml = xmltodict.parse(message)
+                    return xml["root"]
+                except Exception as ex:  # pylint: disable=broad-except
+                    print(f'XML Exception occurred : {ex}')
+                    return None
+            elif self.parsetype.lower()=='protobuf' :
+                try:
+                    # temp_message=self.mymodule
+                    # temp_message.ParseFromString(message)
+                    # my_message_dict = protobuf_to_dict(temp_message)
+                    # return my_message_dict
+                    dynamic_message = self.mymodule()
+                    dynamic_message.ParseFromString(message)
+                    return protobuf_to_dict(dynamic_message)
+
+                except Exception as e:
+                    print(f"Error on protobuff parser: {e}")
+                    return None
+            elif self.parsetype.lower()=='avro' :
+                try:
+                    message_bytes = io.BytesIO(message)
+                    decoder = BinaryDecoder(message_bytes)
+                    event_dict = self.reader.read(decoder)
+                    #print(event_dict)
+                    return event_dict
+                except Exception as e:
+                    print(f"Avro error, perhaps avro not installed: {e}")
+                    return None
+            else:
+                print(f"Unknown parsing type: {self.parsetype}")
+                return None
+        except Exception as e:
+            print(f"General parsing error: {e}")
+            return None
 
     def consumer(self):
         print("consumer start")
         if self.hosts is None:
             client = KafkaClient(hosts="127.0.0.1:9092")
-        else:
+        else:        
             client = KafkaClient(hosts=self.hosts)
         topic = client.topics[self.topic]
         consumer = topic.get_balanced_consumer(consumer_group=self.consumer_group, fetch_message_max_bytes=self.fetch_message_max_bytes,zookeeper_hosts=self.zookeeper_hosts,
@@ -167,46 +182,51 @@ class pykafka_connector(threading.Thread):
         reset_offset_on_start=self.reset_offset_on_start, compacted_topic=self.compacted_topic, generation_id=self.generation_id, consumer_id=self.consumer_id, reset_offset_on_fetch=self.reset_offset_on_fetch )
         for message in consumer:
             if message is not None:
-                if self.random_sampling is not None and self.random_sampling>random.randint(0,100):
-                    pass
-                else:
-                    temp=self.myparser(message.value)#,parsetype)
-                    # print(temp)
-                    print("wtf is going on")
-                    self.data.put(temp)
-                    self.size+=1
-                    try:
+                try:
+                    if self.random_sampling is not None and self.random_sampling>random.randint(0,100):
+                        continue
+
+                    temp=self.myparser(message.value)  # ,parsetype)
+                    if temp is not None:
+                        #print("wtf is going on")
+                        self.data.put(temp)
+                        self.size+=1
+
                         if type(temp) is dict and self.countmin_depth is not None and self.countmin_width is not None:
-                            # print("it is dict")
-                            for key in temp:
-                                # print(key)
-                                if key not in self.cms.keys():
-                                    try:
-                                        self.cms[key] = CountMinSketch(width=self.countmin_width, depth=self.countmin_depth)
-                                    except:
-                                        print("self.cms[key] is None")
+                            for key in temp:                                
+                                if key not in self.cms:  # Use direct dictionary membership check
+                                    self.cms[key] = CountMinSketch(width=self.countmin_width, depth=self.countmin_depth)
+
                                 try:
                                     self.cms[key].add(str(temp[key]))
                                 except:
                                     print("self.cms[key].add(str(temp[key]))")
                         elif type(temp) is list and self.countmin_depth is not None and self.countmin_width is not None:
                             for key in temp:
-                                if self.cms[key] is None:
+                                if str(key) not in self.cms:  # Use direct dictionary membership check
                                     self.cms[str(key)] = CountMinSketch(width=self.countmin_width, depth=self.countmin_depth)
-                                self.cms[str(key)].add(str(temp[str(key)]))                        
-                    except:
-                        print("cms assigment error")
+                                try:
+                                    self.cms[str(key)].add(str(temp[str(key)]))
+                                except Exception as e:
+                                    print(f"Error adding to CountMinSketch: {e}")
+                except Exception as e:
+                    print(f"Error processing message: {e}")
+
+        consumer.stop()
 
     def run(self):
         # kafkaext='confluent'
         # kafkaext='pykfka'
+        print("pykafka run")
         w = Watcher()
+
         #queue_length is the maximum messages that will be kept in memory
         if self.cluster_size==1:
             if self.hosts is None:
                 client = KafkaClient(hosts="127.0.0.1:9092")
-            else:
+            else:        
                 client = KafkaClient(hosts=self.hosts)
+
             topic = client.topics[self.topic]
             consumer = topic.get_simple_consumer(fetch_message_max_bytes=self.fetch_message_max_bytes,
             num_consumer_fetchers=self.num_consumer_fetchers, auto_commit_enable=self.auto_commit_enable, auto_commit_interval_ms=self.auto_commit_interval_ms, queued_max_messages=self.queued_max_messages, 
@@ -215,24 +235,22 @@ class pykafka_connector(threading.Thread):
             reset_offset_on_start=self.reset_offset_on_start, compacted_topic=self.compacted_topic, generation_id=self.generation_id, consumer_id=self.consumer_id, reset_offset_on_fetch=self.reset_offset_on_fetch )
             for message in consumer:
                 if message is not None:
-                    if self.random_sampling is not None and self.random_sampling>random.randint(0,100):
-                        pass
-                    else:
-                        temp=self.myparser(message.value)#,parsetype)
-                        self.data.put(temp)
-                        self.size+=1
-                        try:
+                    try:
+                        if self.random_sampling is not None and self.random_sampling>random.randint(0,100):
+                            continue
+                        temp=self.myparser(message.value)  # ,parsetype)
+                        if temp is not None:
+                            self.data.put(temp)
+                            self.size+=1
+
                             if type(temp) is dict and self.countmin_depth is not None and self.countmin_width is not None:
-                                for key in temp:
-                                    if key not in self.cms.keys():
+                                for key in temp:                                
+                                    if key not in self.cms:  # Use direct dictionary membership check
+                                        self.cms[key] = CountMinSketch(width=self.countmin_width, depth=self.countmin_depth)
+
                                         try:
-                                            self.cms[key] = CountMinSketch(width=self.countmin_width, depth=self.countmin_depth)
+                                            self.cms[key].add(str(temp[key]))
                                         except:
-                                            print("self.cms[key] is None")
-                                    try:
-                                        self.cms[key].add(str(temp[key]))
-                                    except:
-                                        print("self.cms[key].add(str(temp[key]))")
                             elif type(temp) is list and self.countmin_depth is not None and self.countmin_width is not None:
                                 for key in temp:
                                     if self.cms[key] is None:
