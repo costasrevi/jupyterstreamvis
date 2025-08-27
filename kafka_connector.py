@@ -24,6 +24,7 @@ except ImportError:
 
 try:
     from protobuf_to_dict import protobuf_to_dict
+    from google.protobuf import message
 except ImportError:
     protobuf_to_dict = None
 
@@ -34,7 +35,7 @@ class KafkaConnector(threading.Thread):
                  decode="utf-8", schema_path=None, protobuf_message=None, random_sampling=None, countmin_width=None,
                  countmin_depth=None):
         super().__init__()
-        self.hosts = hosts
+        self.hosts = hosts or "localhost:9092"
         self.topic = topic
         self.cluster_size = cluster_size
         self.decode = decode
@@ -64,7 +65,7 @@ class KafkaConnector(threading.Thread):
                 self.schema = avro.schema.parse(avro_schema)
                 self.reader = DatumReader(self.schema)
             except Exception as e:
-                print(f"Avro Schema Error: {e}")
+                print(f"Avro Schema Error: {e}, Avro may not work")
                 return
 
         # Load Protobuf if needed
@@ -72,9 +73,11 @@ class KafkaConnector(threading.Thread):
             try:
                 import importlib
                 module = importlib.import_module(protobuf_message)
-                self.protobuf_class = getattr(module, protobuf_message)()
+                self.protobuf_class = getattr(module, protobuf_message)
+
             except Exception as e:
                 print(f"Protobuf Import Error: {e}")
+                self.protobuf_class = None
 
         self.start()
 
@@ -88,8 +91,11 @@ class KafkaConnector(threading.Thread):
             elif self.parsetype.lower() == "xml" and xmltodict:
                 return xmltodict.parse(message)["root"]
             elif self.parsetype.lower() == "protobuf" and protobuf_to_dict:
-                self.protobuf_class.ParseFromString(message)
-                return protobuf_to_dict(self.protobuf_class)
+                if self.protobuf_class:
+                    dynamic_message = self.protobuf_class()
+                    dynamic_message.ParseFromString(message)
+                    return protobuf_to_dict(dynamic_message)
+
             elif self.parsetype.lower() == "avro" and avro:
                 decoder = BinaryDecoder(io.BytesIO(message))
                 return self.reader.read(decoder)
@@ -102,7 +108,7 @@ class KafkaConnector(threading.Thread):
         try:
             if self.random_sampling and self.random_sampling > random.randint(0, 100):
                 return
-
+            
             message = msg.value().decode(self.decode)
             parsed_message = self.myparser(message)
 
@@ -116,7 +122,7 @@ class KafkaConnector(threading.Thread):
 
             self.size += 1
         except Exception as e:
-            print(f"Message Processing Error: {e}")
+            print(f"Message Processing Error: {e}, Message: {message}")
 
     def consumer_loop(self):
         """Kafka Consumer loop that fetches messages and processes them."""
@@ -127,6 +133,8 @@ class KafkaConnector(threading.Thread):
             msg = consumer.poll(self.poll)
             if msg and not msg.error():
                 self.process_message(msg)
+
+        consumer.close()
 
     def run(self):
         """Start multiple consumer threads if needed."""
