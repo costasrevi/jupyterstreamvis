@@ -40,6 +40,7 @@ class twapi:
         self._last_update = time.time()
         self.button_reset.on_click(self.reset)
         self.button_apply.on_click(self.apply_with_debounce)
+        self.metrics_label = widgets.Label(value="")
 
         # Observe widget changes directly
         self.my_slider.observe(self.apply_with_debounce, names='value')
@@ -51,6 +52,7 @@ class twapi:
         """Creates a TensorWatch stream from an expression."""
         self.expr = expr
         self.streamdata = self.client.create_stream(expr=expr)
+        # self.update_visualizer()
         return self
 
     def apply_with_debounce(self, _=None):
@@ -63,26 +65,23 @@ class twapi:
     def update_visualizer(self, _=None):
         """Updates the TensorWatch visualizer with the latest widget values."""
         try:
-            if self.visualizer is None:
-                # Create visualizer only if it doesn't exist
-                self.out.clear_output()
-                self.visualizer = tw.Visualizer(
-                    self.streamdata,
-                    vis_type="line",
-                    window_width=self.my_slider.value,
-                    window_size=self.my_slider2.value,
-                    Date=self.datebutton.value,
-                    useOffset=self.offsetbutton.value,
-                    dim_history=self.dimhistorybutton.value,
-                    color=self.colorpicker.value,
-                )
-                with self.out:
-                    self.visualizer.show()
-            else:
-                # Update existing visualizer properties
-                await self._async_update_visualizer()
+            # Always clear the output and recreate the visualizer to apply changes
+            self.out.clear_output()
+            self.visualizer = tw.Visualizer(
+                self.streamdata,
+                vis_type="line",
+                window_width=self.my_slider.value,
+                window_size=self.my_slider2.value,
+                Date=self.datebutton.value,
+                useOffset=self.offsetbutton.value,
+                dim_history=self.dimhistorybutton.value,
+                color=self.colorpicker.value,
+            )
+            with self.out:
+                self.visualizer.show()
         except Exception as e:
-            print(f"Error updating visualizer: {e}")
+            with self.out:
+                print(f"Error updating visualizer: {e}")
 
     def reset(self, _=None):
         """Resets all widget values to their defaults."""
@@ -97,25 +96,42 @@ class twapi:
         self.out.clear_output()
         self.visualizer = None
 
-    async def _async_update_visualizer(self):
-        """Asynchronously updates the visualizer properties."""
-        try:
-            # Perform updates in a non-blocking manner
-            self.visualizer.window_width = self.my_slider.value
-            self.visualizer.window_size = self.my_slider2.value
-        except Exception as e:
-            print(f"Async error updating visualizer: {e}")
-
-    def draw(self):        
+    def draw(self):
         """Displays the UI for controlling the visualization."""
         display(self.button_reset, self.button_apply, self.out, self.tab)
 
-    def connector(self, topic, host, parsetype="json", cluster_size=1, conn_type="kafka"):
-        """Returns a Kafka or PyKafka connector."""
+    def draw_with_metrics(self):
+        """Displays the UI for controlling the visualization with metrics."""
+        display(self.metrics_label, self.button_reset, self.button_apply, self.out, self.tab)
+
+    def update_metrics(self, metrics):
+        """Updates the metrics label."""
+        self.metrics_label.value = metrics
+
+    def connector(self, topic, host, parsetype="json", cluster_size=1, conn_type="kafka", queue_length=50000,
+                  group_id="mygroup", avro_schema=None, schema_path=None, protobuf_message=None, parser_extra=None,
+                  random_sampling=None, countmin_width=None, countmin_depth=None):
+        """
+        Returns a Kafka or PyKafka connector, exposing more configuration options.
+        
+        Args:
+            parser_extra (str): For pykafka, this is used to pass the Avro schema string.
+        """
         if conn_type == "kafka":
-            return kc.kafka_connector(topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size)
+            return kc.KafkaConnector(
+                topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,
+                twapi_instance=self, queue_length=queue_length, group_id=group_id,
+                avro_schema=avro_schema, schema_path=schema_path, protobuf_message=protobuf_message,
+                random_sampling=random_sampling, countmin_width=countmin_width,
+                countmin_depth=countmin_depth)
         elif conn_type == "pykafka":
-            return pyc.pykafka_connector(topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size)
+            # Note the mapping of parameters to pykafka's constructor
+            return pyc.pykafka_connector(
+                topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,
+                queue_length=queue_length, consumer_group=bytes(group_id, 'utf-8'),
+                parser_extra=parser_extra, scema_path=schema_path, probuf_message=protobuf_message,
+                random_sampling=random_sampling, countmin_width=countmin_width,
+                countmin_depth=countmin_depth)
         else:
             raise ValueError("Invalid connector type. Choose 'kafka' or 'pykafka'.")
 
