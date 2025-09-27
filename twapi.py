@@ -26,15 +26,14 @@ class twapi:
         self.colorpicker = widgets.ColorPicker(value="blue", description="Pick a Color")
         
         self.button_reset = widgets.Button(description="Reset", tooltip="Reset stream settings")        
-        self.button_apply = widgets.Button(description="Apply", tooltip="Apply changes to the stream")
+        self.button_apply = widgets.Button(description="Apply Changes", tooltip="Apply changes to the visualization")
 
-        # Organize widgets in a tab
-        self.tab = widgets.Tab(children=[
-            self.my_slider, self.my_slider2, self.datebutton, self.offsetbutton, self.dimhistorybutton, self.colorpicker
-        ])
-        tab_titles = ["Window Size", "Window Width", "Date Format", "Offset", "Dim History", "Color Picker"]
-        for i, title in enumerate(tab_titles):
-            self.tab.set_title(i, title)
+        # Group widgets for a cleaner UI
+        left_box = widgets.VBox([self.my_slider, self.my_slider2, self.colorpicker])
+        right_box = widgets.VBox([self.offsetbutton, self.dimhistorybutton, self.datebutton])
+        self.options_box = widgets.HBox([left_box, right_box])
+        self.accordion = widgets.Accordion(children=[self.options_box])
+        self.accordion.set_title(0, 'Visualization Options')
 
         # Event handlers
         self._last_update = time.time()
@@ -51,16 +50,20 @@ class twapi:
     def stream(self, expr):
         """Creates a TensorWatch stream from an expression."""
         self.expr = expr
-        self.streamdata = self.client.create_stream(expr=expr)
-        # self.update_visualizer()
+        try:
+            self.streamdata = self.client.create_stream(expr=expr)
+            # Initialize the visualizer immediately after stream creation
+            # self.update_visualizer()
+        except Exception as e:
+            print(f"Error creating stream: {e}")
         return self
 
     def apply_with_debounce(self, _=None):
         """Debounced apply function to prevent too frequent updates."""
-        now = time.time()
-        if now - self._last_update > self.update_interval:
-            self.update_visualizer()
-            self._last_update = now
+        # now = time.time()
+        # if now - self._last_update > self.update_interval:
+        self.update_visualizer()
+            # self._last_update = now
 
     def update_visualizer(self, _=None):
         """Updates the TensorWatch visualizer with the latest widget values."""
@@ -70,8 +73,8 @@ class twapi:
             self.visualizer = tw.Visualizer(
                 self.streamdata,
                 vis_type="line",
-                window_width=self.my_slider.value,
-                window_size=self.my_slider2.value,
+                window_width=self.my_slider2.value,
+                window_size=self.my_slider.value,
                 Date=self.datebutton.value,
                 useOffset=self.offsetbutton.value,
                 dim_history=self.dimhistorybutton.value,
@@ -98,11 +101,13 @@ class twapi:
 
     def draw(self):
         """Displays the UI for controlling the visualization."""
-        display(self.button_reset, self.button_apply, self.out, self.tab)
+        self.update_visualizer()
+        display(widgets.HBox([self.button_reset, self.button_apply]), self.accordion, self.out)
 
     def draw_with_metrics(self):
         """Displays the UI for controlling the visualization with metrics."""
-        display(self.metrics_label, self.button_reset, self.button_apply, self.out, self.tab)
+        self.update_visualizer()
+        display(self.metrics_label, widgets.HBox([self.button_reset, self.button_apply]), self.accordion, self.out)
 
     def update_metrics(self, metrics):
         """Updates the metrics label."""
