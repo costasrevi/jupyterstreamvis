@@ -5,12 +5,19 @@ from IPython.display import display
 from ipywidgets import widgets
 import asyncio
 import time
+import logging
+import sys
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', stream=sys.stdout)
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 
 class twapi:
     """TensorWatch API Wrapper for Kafka Streaming and Visualization"""
 
     def __init__(self):
+        logging.debug("Initializing twapi")
         self.default_value = 10
         self.visualizer = None  # Initialize visualizer as None
         self.client = tw.WatcherClient()
@@ -26,7 +33,7 @@ class twapi:
         self.colorpicker = widgets.ColorPicker(value="blue", description="Pick a Color")
         
         self.button_reset = widgets.Button(description="Reset", tooltip="Reset stream settings")        
-        self.button_apply = widgets.Button(description="Apply Changes", tooltip="Apply changes to the visualization")
+        self.button_apply = widgets.Button(description="Please wait", tooltip="Apply changes to the visualization", disabled=True)
 
         # Group widgets for a cleaner UI
         left_box = widgets.VBox([self.my_slider, self.my_slider2, self.colorpicker])
@@ -45,31 +52,44 @@ class twapi:
         self.my_slider.observe(self.apply_with_debounce, names='value')
         self.my_slider2.observe(self.apply_with_debounce, names='value')
         self.colorpicker.observe(self.apply_with_debounce, names='value')
+        logging.debug("twapi initialized")
 
 
     def stream(self, expr):
         """Creates a TensorWatch stream from an expression."""
+        logging.debug(f"Creating stream with expression: {expr}")
         self.expr = expr
         try:
             self.streamdata = self.client.create_stream(expr=expr)
+            logging.debug("Stream created successfully")
             # Initialize the visualizer immediately after stream creation
             # self.update_visualizer()
         except Exception as e:
+            logging.error(f"Error creating stream: {e}")
             print(f"Error creating stream: {e}")
         return self
 
     def apply_with_debounce(self, _=None):
         """Debounced apply function to prevent too frequent updates."""
-        # now = time.time()
-        # if now - self._last_update > self.update_interval:
-        self.update_visualizer()
-            # self._last_update = now
+        now = time.time()
+        if now - self._last_update > self.update_interval:
+            self.update_visualizer()
+            self._last_update = now
+            if self.button_apply.description == "Start":
+                self.button_apply.description = "Apply Changes"
 
     def update_visualizer(self, _=None):
         """Updates the TensorWatch visualizer with the latest widget values."""
+        logging.debug("Updating visualizer")
+        if not hasattr(self, 'streamdata') or not self.streamdata:
+            logging.warning("Stream data not available or empty. Cannot update visualizer.")
+            with self.out:
+                self.out.clear_output(wait=True)
+                print("Stream data not available or empty yet. Please wait for data.")
+            return
         try:
             # Always clear the output and recreate the visualizer to apply changes
-            self.out.clear_output()
+            self.out.clear_output(wait=True)
             self.visualizer = tw.Visualizer(
                 self.streamdata,
                 vis_type="line",
@@ -82,9 +102,17 @@ class twapi:
             )
             with self.out:
                 self.visualizer.show()
+            logging.debug(f"Visualizer updated successfully: {self.streamdata}")
         except Exception as e:
+            logging.error(f"Error updating visualizer: {e}")
             with self.out:
                 print(f"Error updating visualizer: {e}")
+
+    def enable_apply_button(self):
+        """Enables the apply button."""
+        logging.debug("Enabling apply button.")
+        self.button_apply.disabled = False
+        self.button_apply.description = "Start"
 
     def reset(self, _=None):
         """Resets all widget values to their defaults."""
@@ -101,12 +129,12 @@ class twapi:
 
     def draw(self):
         """Displays the UI for controlling the visualization."""
-        self.update_visualizer()
+        # self.update_visualizer()
         display(widgets.HBox([self.button_reset, self.button_apply]), self.accordion, self.out)
 
     def draw_with_metrics(self):
         """Displays the UI for controlling the visualization with metrics."""
-        self.update_visualizer()
+        # self.update_visualizer()
         display(self.metrics_label, widgets.HBox([self.button_reset, self.button_apply]), self.accordion, self.out)
 
     def update_metrics(self, metrics):
@@ -122,6 +150,7 @@ class twapi:
         Args:
             parser_extra (str): For pykafka, this is used to pass the Avro schema string.
         """
+        logging.debug(f"Creating connector of type '{conn_type}' for topic '{topic}' at {host}")
         if conn_type == "kafka":
             return kc.KafkaConnector(
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,

@@ -439,7 +439,7 @@ class pykafka_connector(threading.Thread):
         return None
 
     def consumer(self):
-        print("consumer start")
+        # print("consumer start")
         if self.hosts is None:
             client = KafkaClient(hosts="127.0.0.1:9092")
         else:        

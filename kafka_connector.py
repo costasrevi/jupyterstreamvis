@@ -8,6 +8,7 @@ from typing import Dict
 from confluent_kafka import Consumer
 from tensorwatch import Watcher
 from probables import CountMinSketch
+import logging
 
 # Optional Parsers
 try:
@@ -35,6 +36,7 @@ class KafkaConnector(threading.Thread):
                  decode="utf-8", schema_path=None, protobuf_message=None, random_sampling=None, countmin_width=None,
                  countmin_depth=None, twapi_instance=None):
         super().__init__()
+        logging.debug("Initializing KafkaConnector")
         self.hosts = hosts or "localhost:9092"
         self.topic = topic
         self.cluster_size = cluster_size
@@ -53,6 +55,7 @@ class KafkaConnector(threading.Thread):
             "group.id": group_id,
             "auto.offset.reset": auto_offset,
         }
+        logging.debug(f"Kafka Consumer Config: {self.consumer_config}")
         self._quit = threading.Event()
         self.size = 0
         self.watcher = Watcher()
@@ -63,28 +66,35 @@ class KafkaConnector(threading.Thread):
         self.latencies = []
         self.received_count = 0
         self.last_report_time = time.time()
+        self.first_message_sent = False
 
         # Load Avro Schema if needed
         if parsetype == "avro" and avro:
+            logging.debug("Loading Avro schema")
             try:
                 self.schema = avro.schema.parse(avro_schema)
                 self.reader = DatumReader(self.schema)
             except Exception as e:
+                logging.error(f"Avro Schema Error: {e}, Avro may not work")
                 print(f"Avro Schema Error: {e}, Avro may not work")
                 return
 
         # Load Protobuf if needed
         if parsetype == "protobuf" and protobuf_to_dict:
+            logging.debug("Loading Protobuf message type")
             try:
                 import importlib
                 module = importlib.import_module(protobuf_message)
                 self.protobuf_class = getattr(module, protobuf_message)
 
             except Exception as e:
+                logging.error(f"Protobuf Import Error: {e}")
                 print(f"Protobuf Import Error: {e}")
                 self.protobuf_class = None
 
+        logging.debug("Starting KafkaConnector thread")
         self.start()
+        logging.debug("KafkaConnector initialized")
 
     def myparser(self, message):
         """Parse messages based on the specified format."""
@@ -105,6 +115,7 @@ class KafkaConnector(threading.Thread):
                 decoder = BinaryDecoder(io.BytesIO(message))
                 return self.reader.read(decoder)
         except Exception as e:
+            logging.error(f"Parsing Error ({self.parsetype}): {e}")
             print(f"Parsing Error ({self.parsetype}): {e}")
         return None
 
@@ -113,6 +124,7 @@ class KafkaConnector(threading.Thread):
         receive_time = time.time()
         try:
             if self.random_sampling and self.random_sampling > random.randint(0, 100):
+                # logging.debug("Message skipped due to random sampling")
                 return
             
             message = msg.value().decode(self.decode)
@@ -125,9 +137,18 @@ class KafkaConnector(threading.Thread):
                 self.latencies.append(latency)
                 parsed_message['latency'] = latency
                 parsed_message['receive_time'] = receive_time
+                # logging.debug(f"Message latency: {latency:.4f}s")
 
             if parsed_message and not self.data.full():
                 self.data.put(parsed_message, block=False)
+                if not self.first_message_sent and self.twapi_instance:
+                    logging.info("First message received, triggering visualization update.")
+                    self.twapi_instance.enable_apply_button()
+                    self.twapi_instance.apply_with_debounce()
+                    self.first_message_sent = True
+            elif self.data.full():
+                # logging.warning("Queue is full, dropping message.")
+                pass
 
             if isinstance(parsed_message, dict) and self.countmin_width and self.countmin_depth:
                 for key, value in parsed_message.items():
@@ -136,24 +157,30 @@ class KafkaConnector(threading.Thread):
 
             self.size += 1
         except Exception as e:
+            logging.error(f"Message Processing Error: {e}, Message: {message}")
             print(f"Message Processing Error: {e}, Message: {message}")
 
     def consumer_loop(self):
         """Kafka Consumer loop that fetches messages and processes them."""
+        logging.info(f"Starting consumer loop for topic '{self.topic}'")
         consumer = Consumer(self.consumer_config)
         consumer.subscribe([self.topic])
 
         while not self._quit.is_set():
             msg = consumer.poll(self.poll)
             if msg and not msg.error():
+                # logging.debug("Message received from Kafka")
                 self.process_message(msg)
             elif msg and msg.error():
+                logging.error(f"Kafka Error: {msg.error()}")
                 print(f"Kafka Error: {msg.error()}")
 
         consumer.close()
+        logging.info("Consumer loop stopped")
 
     def run(self):
         """Start multiple consumer threads if needed."""
+        logging.info(f"Starting {self.cluster_size} consumer threads")
         threads = [threading.Thread(target=self.consumer_loop, daemon=True) for _ in range(self.cluster_size)]
         for thread in threads:
             thread.start()
@@ -165,6 +192,7 @@ class KafkaConnector(threading.Thread):
             # --- BENCHMARK REPORTING ---
             current_time = time.time()
             if current_time - self.last_report_time > 5.0: # Report every 5 seconds
+                logging.debug("Entering benchmark reporting section")
                 if self.latencies:
                     avg_latency = sum(self.latencies) / len(self.latencies)
                     max_latency = max(self.latencies)
@@ -178,15 +206,19 @@ class KafkaConnector(threading.Thread):
                                  f"Avg: {avg_latency*1000:.2f}, "
                                  f"Min: {min_latency*1000:.2f}, "
                                  f"Max: {max_latency*1000:.2f}")
+                    logging.info(f"Benchmark stats: {stats_str}")
                     print(stats_str)
 
                     if self.twapi_instance:
+                        logging.debug("Updating twapi metrics")
                         # This is not awaited, might need to run in event loop if twapi is async
                         self.twapi_instance.update_metrics(stats_str)
 
                     # Reset stats for next interval
+                    logging.debug("Resetting benchmark stats")
                     self.latencies = []
                     self.received_count = 0
                 self.last_report_time = current_time
+                logging.debug("Exiting benchmark reporting section")
 
             time.sleep(0.4)
