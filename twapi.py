@@ -8,16 +8,11 @@ import time
 import logging
 import matplotlib.pyplot as plt
 
-# # Configure logging
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-# logging.getLogger('matplotlib').setLevel(logging.DEBUG)
-
-
 class twapi:
     """TensorWatch API Wrapper for Kafka Streaming and Visualization"""
 
     def __init__(self):
-        # logging.debug("Initializing twapi")
+        """Initializes the twapi class, setting up the UI widgets and event handlers."""
         self.default_value = 10
         self.visualizer = None  # Initialize visualizer as None
         self.client = tw.WatcherClient()
@@ -52,17 +47,13 @@ class twapi:
         self.my_slider.observe(self.apply_with_debounce, names='value')
         self.my_slider2.observe(self.apply_with_debounce, names='value')
         self.colorpicker.observe(self.apply_with_debounce, names='value')
-        # logging.debug("twapi initialized")
-
 
     def stream(self, expr):
         """Creates a TensorWatch stream from an expression."""
-        #logging.debug(f"Creating stream with expression: {expr}")
         self.expr = expr
         try:
             self.streamdata = self.client.create_stream(expr=expr)
             logging.debug("Stream created successfully")
-            # Initialize the visualizer immediately after stream creation
         except Exception as e:
             logging.error(f"Error creating stream: {e}")
             print(f"Error creating stream: {e}")
@@ -94,6 +85,7 @@ class twapi:
                 self.visualizer.close()
                 plt.close('all') # Also close any lingering matplotlib figures
 
+            # Create a new visualizer with the current settings
             self.visualizer = tw.Visualizer(
                 self.streamdata,
                 vis_type="line",
@@ -108,19 +100,18 @@ class twapi:
                 self.visualizer.show()
                 
         except Exception as e:
-            # Also clear output on error
             self.out.clear_output(wait=True)
             with self.out:
                 print(f"Error updating visualizer: {e}")
 
     def enable_apply_button(self):
-        """Enables the apply button."""
+        """Enables the apply button and changes its description to 'Start'."""
         logging.debug("Enabling apply button.")
         self.button_apply.disabled = False
         self.button_apply.description = "Start"
 
     def reset(self, _=None):
-        """Resets all widget values to their defaults."""
+        """Resets all widget values to their defaults and clears the visualization."""
         self.my_slider.value = self.default_value
         self.my_slider2.value = self.default_value
         self.datebutton.value = False
@@ -128,7 +119,7 @@ class twapi:
         self.dimhistorybutton.value = True
         self.colorpicker.value = "blue"
         
-        # Clear the output and set visualizer to None
+        # Clear the output and close the visualizer
         self.out.clear_output()
         if self.visualizer:
             self.visualizer.close()
@@ -137,7 +128,6 @@ class twapi:
 
     def draw(self):
         """Displays the UI for controlling the visualization."""
-        # self.update_visualizer()
         ui = widgets.VBox([
             widgets.HBox([self.button_reset, self.button_apply]),
             self.accordion,
@@ -146,8 +136,7 @@ class twapi:
         display(ui)
 
     def draw_with_metrics(self):
-        """Displays the UI for controlling the visualization with metrics."""
-        # self.update_visualizer()
+        """Displays the UI for controlling the visualization with a metrics label."""
         ui = widgets.VBox([
             self.metrics_label,
             widgets.HBox([self.button_reset, self.button_apply]),
@@ -157,19 +146,34 @@ class twapi:
         display(ui)
 
     def update_metrics(self, metrics):
-        """Updates the metrics label."""
+        """Updates the metrics label with the provided text."""
         self.metrics_label.value = metrics
 
     def connector(self, topic, host, parsetype="json", cluster_size=1, conn_type="kafka", queue_length=50000,
                   group_id="mygroup", avro_schema=None, schema_path=None, protobuf_message=None, parser_extra=None,
                   random_sampling=None, countmin_width=None, countmin_depth=None):
         """
-        Returns a Kafka or PyKafka connector, exposing more configuration options.
-        
+        Creates and returns a Kafka or PyKafka connector.
+
         Args:
-            parser_extra (str): For pykafka, this is used to pass the Avro schema string.
+            topic (str): The Kafka topic to consume from.
+            host (str): The Kafka broker host.
+            parsetype (str): The message format (e.g., 'json', 'pickle', 'avro').
+            cluster_size (int): The number of consumer threads.
+            conn_type (str): The type of connector to use ('kafka' or 'pykafka').
+            queue_length (int): The maximum size of the message queue.
+            group_id (str): The Kafka consumer group ID.
+            avro_schema (str): The Avro schema for 'kafka' connector.
+            schema_path (str): The path to the schema file.
+            protobuf_message (str): The name of the Protobuf message class.
+            parser_extra (str): Extra data for the parser (e.g., Avro schema for 'pykafka').
+            random_sampling (int): The percentage of messages to sample.
+            countmin_width (int): The width of the Count-Min Sketch.
+            countmin_depth (int): The depth of the Count-Min Sketch.
+
+        Returns:
+            A KafkaConnector or pykafka_connector instance.
         """
-        # logging.debug(f"Creating connector of type '{conn_type}' for topic '{topic}' at {host}")
         if conn_type == "kafka":
             return kc.KafkaConnector(
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,
@@ -178,7 +182,6 @@ class twapi:
                 random_sampling=random_sampling, countmin_width=countmin_width,
                 countmin_depth=countmin_depth)
         elif conn_type == "pykafka":
-            # Note the mapping of parameters to pykafka's constructor
             return pyc.pykafka_connector(
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,twapi_instance=self, 
                 queue_length=queue_length, consumer_group=bytes(group_id, 'utf-8'),

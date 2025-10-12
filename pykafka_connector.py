@@ -30,6 +30,10 @@ except ImportError:
 from probables import CountMinSketch
 
 class pykafka_connector(threading.Thread):
+    """
+    A Kafka consumer that uses the pykafka library to consume messages from a Kafka topic.
+    It runs in a separate thread and supports various message formats.
+    """
     def __init__(self, hosts: str = None, topic: str = None, parsetype: str = None, queue_length: int = None, cluster_size: int = 1,
                  consumer_group: bytes = b'default', auto_offset_reset: OffsetType = OffsetType.EARLIEST,
                  fetch_message_max_bytes: int = 1024 * 1024, num_consumer_fetchers: int = 1,
@@ -38,6 +42,34 @@ class pykafka_connector(threading.Thread):
                  consumer_timeout_ms: int = -1, decode: str = "utf-8",
                  scema_path: str = None, random_sampling: int = None, countmin_width: int = None,
                  countmin_depth: int = None, twapi_instance=None, parser_extra=None, probuf_message=None, zookeeper_hosts:str='127.0.0.1:2181'):
+        """
+        Initializes the pykafka_connector.
+
+        Args:
+            hosts (str): Comma-separated list of Kafka brokers.
+            topic (str): The Kafka topic to consume from.
+            parsetype (str): The format of the messages (e.g., "json", "pickle", "xml", "avro", "protobuf").
+            queue_length (int): The maximum number of messages to store in the internal queue.
+            cluster_size (int): The number of consumer threads to run.
+            consumer_group (bytes): The consumer group ID.
+            auto_offset_reset (OffsetType): The offset reset policy.
+            fetch_message_max_bytes (int): The maximum size of a message to fetch.
+            num_consumer_fetchers (int): The number of fetcher threads.
+            auto_commit_enable (bool): Whether to enable auto-commit.
+            auto_commit_interval_ms (int): The auto-commit interval in milliseconds.
+            queued_max_messages (int): The maximum number of messages to queue.
+            fetch_min_bytes (int): The minimum number of bytes to fetch.
+            consumer_timeout_ms (int): The consumer timeout in milliseconds.
+            decode (str): The encoding to use for decoding messages.
+            scema_path (str): The path to the Avro or Protobuf schema.
+            random_sampling (int): The percentage of messages to sample (0-100).
+            countmin_width (int): The width of the Count-Min Sketch.
+            countmin_depth (int): The depth of the Count-Min Sketch.
+            twapi_instance: An instance of the TensorWatch API for updating metrics.
+            parser_extra (str): Extra information for the parser (e.g., Avro schema, Protobuf module).
+            probuf_message (str): The name of the Protobuf message class.
+            zookeeper_hosts (str): Comma-separated list of Zookeeper hosts.
+        """
         super().__init__()
         self.hosts = hosts or "127.0.0.1:9092"
         self.topic = topic
@@ -101,6 +133,15 @@ class pykafka_connector(threading.Thread):
         self.start()
 
     def myparser(self, message):
+        """
+        Parses a message based on the specified format.
+
+        Args:
+            message: The message to parse.
+
+        Returns:
+            The parsed message, or None if parsing fails.
+        """
         try:
             if self.parsetype is None or self.parsetype.lower() == 'json':
                 return json.loads(message)
@@ -121,8 +162,13 @@ class pykafka_connector(threading.Thread):
         return None
 
     def process_message(self, message_bytes):
+        """
+        Processes a single message from Kafka. This includes parsing, calculating latency,
+        and adding the message to the data queue.
+        """
         receive_time = time.time()
         try:
+            # Apply random sampling if configured
             if self.random_sampling and self.random_sampling > random.randint(0, 100):
                 return
 
@@ -130,6 +176,7 @@ class pykafka_connector(threading.Thread):
             if parsed_message is None:
                 return
 
+            # Calculate and record latency if send_time is in the message
             if isinstance(parsed_message, dict) and 'send_time' in parsed_message:
                 self.received_count += 1
                 send_time = parsed_message['send_time']
@@ -138,18 +185,18 @@ class pykafka_connector(threading.Thread):
                 parsed_message['latency'] = latency
                 parsed_message['receive_time'] = receive_time
 
-            
-
+            # Add the parsed message to the queue if it's not full
             if not self.data.full():
                 self.data.put(parsed_message, block=False)
+                # Notify the twapi_instance on the first message
                 if not self.first_message_sent and self.twapi_instance:
                     logging.info("First message received, enabling apply button.")
                     self.twapi_instance.enable_apply_button()
-                    # self.twapi_instance.apply_with_debounce()
                     self.first_message_sent = True
-            # else:
-                # logging.warning("Queue is full, dropping message.")
+            else:
+                logging.warning("Queue is full, dropping message.")
 
+            # Update Count-Min Sketch if configured
             if isinstance(parsed_message, dict) and self.countmin_width and self.countmin_depth:
                 for key, value in parsed_message.items():
                     self.cms.setdefault(key, CountMinSketch(width=self.countmin_width, depth=self.countmin_depth))
@@ -160,17 +207,22 @@ class pykafka_connector(threading.Thread):
             logging.error(f"Message Processing Error: {e}")
 
     def consumer_loop(self):
+        """
+        The main loop for the Kafka consumer. It creates a Kafka client and consumes messages
+        from the specified topic.
+        """
         logging.info(f"Starting pykafka consumer loop for topic '{self.topic}'")
         client = KafkaClient(hosts=self.hosts)
         topic = client.topics[self.topic]
 
+        # Use a balanced consumer if cluster_size is greater than 1
         if self.cluster_size > 1:
             consumer = topic.get_balanced_consumer(
                 consumer_group=self.consumer_group,
                 auto_commit_enable=self.auto_commit_enable,
                 auto_offset_reset=self.auto_offset_reset,
                 num_consumer_fetchers=self.num_consumer_fetchers,
-                auto_commit_interval_ms=self.auto_commit_interval_ms, #
+                auto_commit_interval_ms=self.auto_commit_interval_ms,
                 queued_max_messages=self.queued_max_messages,
                 fetch_min_bytes=self.fetch_min_bytes,
                 zookeeper_connect=self.zookeeper_hosts
@@ -196,17 +248,22 @@ class pykafka_connector(threading.Thread):
         logging.info("Consumer loop stopped")
 
     def run(self):
+        """
+        Starts the consumer threads and the main watcher loop.
+        """
         logging.info(f"Starting {self.cluster_size} pykafka consumer threads")
         threads = [threading.Thread(target=self.consumer_loop, daemon=True) for _ in range(self.cluster_size)]
         for thread in threads:
             thread.start()
 
         while not self._quit.is_set():
+            # Observe the data queue with TensorWatch
             if not self.data.empty():
                 self.watcher.observe(data=list(self.data.queue), size=self.size, cms=self.cms)
 
+            # --- BENCHMARK REPORTING ---
             current_time = time.time()
-            if current_time - self.last_report_time > 5.0:
+            if current_time - self.last_report_time > 5.0: # Report every 5 seconds
                 if self.latencies:
                     avg_latency = sum(self.latencies) / len(self.latencies)
                     max_latency = max(self.latencies)
@@ -220,9 +277,11 @@ class pykafka_connector(threading.Thread):
                                  f"Min: {min_latency*1000:.2f}, "
                                  f"Max: {max_latency*1000:.2f}")
                     
+                    # Update the TensorWatch API with the latest metrics
                     if self.twapi_instance:
                         self.twapi_instance.update_metrics(stats_str)
 
+                    # Reset stats for the next interval
                     self.latencies = []
                     self.received_count = 0
                 self.last_report_time = current_time
@@ -230,4 +289,5 @@ class pykafka_connector(threading.Thread):
             time.sleep(0.4)
 
     def quit(self):
+        """Stops the consumer thread."""
         self._quit.set()
