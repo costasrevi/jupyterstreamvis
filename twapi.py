@@ -6,18 +6,18 @@ from ipywidgets import widgets
 import asyncio
 import time
 import logging
-import sys
+import matplotlib.pyplot as plt
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', stream=sys.stdout)
-logging.getLogger('matplotlib').setLevel(logging.WARNING)
+# # Configure logging
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.getLogger('matplotlib').setLevel(logging.DEBUG)
 
 
 class twapi:
     """TensorWatch API Wrapper for Kafka Streaming and Visualization"""
 
     def __init__(self):
-        logging.debug("Initializing twapi")
+        # logging.debug("Initializing twapi")
         self.default_value = 10
         self.visualizer = None  # Initialize visualizer as None
         self.client = tw.WatcherClient()
@@ -52,18 +52,17 @@ class twapi:
         self.my_slider.observe(self.apply_with_debounce, names='value')
         self.my_slider2.observe(self.apply_with_debounce, names='value')
         self.colorpicker.observe(self.apply_with_debounce, names='value')
-        logging.debug("twapi initialized")
+        # logging.debug("twapi initialized")
 
 
     def stream(self, expr):
         """Creates a TensorWatch stream from an expression."""
-        logging.debug(f"Creating stream with expression: {expr}")
+        #logging.debug(f"Creating stream with expression: {expr}")
         self.expr = expr
         try:
             self.streamdata = self.client.create_stream(expr=expr)
             logging.debug("Stream created successfully")
             # Initialize the visualizer immediately after stream creation
-            # self.update_visualizer()
         except Exception as e:
             logging.error(f"Error creating stream: {e}")
             print(f"Error creating stream: {e}")
@@ -80,16 +79,21 @@ class twapi:
 
     def update_visualizer(self, _=None):
         """Updates the TensorWatch visualizer with the latest widget values."""
-        logging.debug("Updating visualizer")
         if not hasattr(self, 'streamdata') or not self.streamdata:
-            logging.warning("Stream data not available or empty. Cannot update visualizer.")
+            self.out.clear_output(wait=True)
             with self.out:
-                self.out.clear_output(wait=True)
                 print("Stream data not available or empty yet. Please wait for data.")
             return
+
         try:
-            # Always clear the output and recreate the visualizer to apply changes
+            # Always clear output before drawing
             self.out.clear_output(wait=True)
+
+            # Close previous visualizer if it exists to free resources
+            if self.visualizer:
+                self.visualizer.close()
+                plt.close('all') # Also close any lingering matplotlib figures
+
             self.visualizer = tw.Visualizer(
                 self.streamdata,
                 vis_type="line",
@@ -102,9 +106,10 @@ class twapi:
             )
             with self.out:
                 self.visualizer.show()
-            logging.debug(f"Visualizer updated successfully: {self.streamdata}")
+                
         except Exception as e:
-            logging.error(f"Error updating visualizer: {e}")
+            # Also clear output on error
+            self.out.clear_output(wait=True)
             with self.out:
                 print(f"Error updating visualizer: {e}")
 
@@ -125,17 +130,31 @@ class twapi:
         
         # Clear the output and set visualizer to None
         self.out.clear_output()
+        if self.visualizer:
+            self.visualizer.close()
+        plt.close('all')
         self.visualizer = None
 
     def draw(self):
         """Displays the UI for controlling the visualization."""
         # self.update_visualizer()
-        display(widgets.HBox([self.button_reset, self.button_apply]), self.accordion, self.out)
+        ui = widgets.VBox([
+            widgets.HBox([self.button_reset, self.button_apply]),
+            self.accordion,
+            self.out
+        ])
+        display(ui)
 
     def draw_with_metrics(self):
         """Displays the UI for controlling the visualization with metrics."""
         # self.update_visualizer()
-        display(self.metrics_label, widgets.HBox([self.button_reset, self.button_apply]), self.accordion, self.out)
+        ui = widgets.VBox([
+            self.metrics_label,
+            widgets.HBox([self.button_reset, self.button_apply]),
+            self.accordion,
+            self.out
+        ])
+        display(ui)
 
     def update_metrics(self, metrics):
         """Updates the metrics label."""
@@ -150,7 +169,7 @@ class twapi:
         Args:
             parser_extra (str): For pykafka, this is used to pass the Avro schema string.
         """
-        logging.debug(f"Creating connector of type '{conn_type}' for topic '{topic}' at {host}")
+        # logging.debug(f"Creating connector of type '{conn_type}' for topic '{topic}' at {host}")
         if conn_type == "kafka":
             return kc.KafkaConnector(
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,
@@ -161,7 +180,7 @@ class twapi:
         elif conn_type == "pykafka":
             # Note the mapping of parameters to pykafka's constructor
             return pyc.pykafka_connector(
-                topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,
+                topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,twapi_instance=self, 
                 queue_length=queue_length, consumer_group=bytes(group_id, 'utf-8'),
                 parser_extra=parser_extra, scema_path=schema_path, probuf_message=protobuf_message,
                 random_sampling=random_sampling, countmin_width=countmin_width,
