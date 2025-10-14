@@ -1,2 +1,13 @@
-__pycache__/__init__.cpython-38.pyc
-__pycache__/twapi.cpython-38.pyc
+__pycache__
+tensorwatch-api/__init__.py
+tensorwatch-api/Example_senter.py
+tensorwatch-api/kafka_connector.py
+tensorwatch-api/pykafka_connector.py
+tensorwatch-api
+dist
+build
+trash
+tensorwatch_api.egg-info
+setup.py
+__pycache__/__init__.cpython-310.pyc
+__pycache__/twapi.cpython-310.pyc
