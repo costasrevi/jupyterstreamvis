@@ -8,14 +8,15 @@ import time
 import logging
 import matplotlib.pyplot as plt
 
-class twapi:
-    """TensorWatch API Wrapper for Kafka Streaming and Visualization"""
+class Vis:
+    """A class to encapsulate a single visualization."""
 
-    def __init__(self):
-        """Initializes the twapi class, setting up the UI widgets and event handlers."""
+    def __init__(self, client):
+        """Initializes the Vis class."""
         self.default_value = 10
         self.visualizer = None  # Initialize visualizer as None
-        self.client = tw.WatcherClient()
+        self.title = None
+        self.client = client
         self.out = widgets.Output(layout={})
 
         # Initialize UI widgets
@@ -89,6 +90,7 @@ class twapi:
             self.visualizer = tw.Visualizer(
                 self.streamdata,
                 vis_type="line",
+                title=self.title,
                 window_width=self.my_slider2.value,
                 window_size=self.my_slider.value,
                 Date=self.datebutton.value,
@@ -126,53 +128,78 @@ class twapi:
         plt.close('all')
         self.visualizer = None
 
-    def draw(self):
+    def draw(self, title=None):
         """Displays the UI for controlling the visualization."""
-        ui = widgets.VBox([
+        self.title = title
+        items = []
+        if title:
+            items.append(widgets.HTML(f"<h3>{title}</h3>"))
+        
+        items.extend([
             widgets.HBox([self.button_reset, self.button_apply]),
             self.accordion,
             self.out
         ])
+        
+        ui = widgets.VBox(items)
         display(ui)
 
-    def draw_with_metrics(self):
+    def draw_with_metrics(self, title=None):
         """Displays the UI for controlling the visualization with a metrics label."""
-        ui = widgets.VBox([
+        self.title = title
+        items = []
+        if title:
+            items.append(widgets.HTML(f"<h3>{title}</h3>"))
+            
+        items.extend([
             self.metrics_label,
             widgets.HBox([self.button_reset, self.button_apply]),
             self.accordion,
             self.out
         ])
+        
+        ui = widgets.VBox(items)
         display(ui)
 
     def update_metrics(self, metrics):
         """Updates the metrics label with the provided text."""
         self.metrics_label.value = metrics
 
+class twapi:
+    """TensorWatch API Wrapper for Kafka Streaming and Visualization"""
+
+    def __init__(self):
+        """Initializes the twapi class."""
+        self.client = tw.WatcherClient()
+        self.visualizations = []
+        self.first_message_received = False
+
+    def create_vis(self):
+        """Creates and returns a Vis instance for a new visualization."""
+        vis = Vis(self.client)
+        self.visualizations.append(vis)
+        return vis
+
+    def enable_apply_buttons(self):
+        """Enables the apply button on all visualizations."""
+        for vis in self.visualizations:
+            vis.enable_apply_button()
+
+    def apply_with_debounce(self, _=None):
+        """Applies changes to all visualizations with debounce."""
+        for vis in self.visualizations:
+            vis.apply_with_debounce()
+
+    def update_metrics(self, metrics):
+        """Updates the metrics on all visualizations."""
+        for vis in self.visualizations:
+            vis.update_metrics(metrics)
+
     def connector(self, topic, host, parsetype="json", cluster_size=1, conn_type="kafka", queue_length=50000,
                   group_id="mygroup", avro_schema=None, schema_path=None, protobuf_message=None, parser_extra=None,
                   random_sampling=None, countmin_width=None, countmin_depth=None):
         """
         Creates and returns a Kafka or PyKafka connector.
-
-        Args:
-            topic (str): The Kafka topic to consume from.
-            host (str): The Kafka broker host.
-            parsetype (str): The message format (e.g., 'json', 'pickle', 'avro').
-            cluster_size (int): The number of consumer threads.
-            conn_type (str): The type of connector to use ('kafka' or 'pykafka').
-            queue_length (int): The maximum size of the message queue.
-            group_id (str): The Kafka consumer group ID.
-            avro_schema (str): The Avro schema for 'kafka' connector.
-            schema_path (str): The path to the schema file.
-            protobuf_message (str): The name of the Protobuf message class.
-            parser_extra (str): Extra data for the parser (e.g., Avro schema for 'pykafka').
-            random_sampling (int): The percentage of messages to sample.
-            countmin_width (int): The width of the Count-Min Sketch.
-            countmin_depth (int): The depth of the Count-Min Sketch.
-
-        Returns:
-            A KafkaConnector or pykafka_connector instance.
         """
         if conn_type == "kafka":
             return kc.KafkaConnector(

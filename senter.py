@@ -10,7 +10,7 @@ def main():
     """
     try:
         client = KafkaClient(hosts="127.0.0.1:9093")
-        topic = client.topics['gemini2']
+        topic = client.topics['gemini4']
     except Exception as e:
         print(f"Failed to connect to Kafka: {e}")
         sys.exit(1)
@@ -25,11 +25,20 @@ def main():
         start_time = time.time()
 
         for i in range(num_messages):
+            # The original message format
             message = {
                 'seq': i,
                 'send_time': time.time(),
                 'data': random.randint(0, 1000)
             }
+
+            # # New message format for testing topk
+            # batch_size = 20
+            # message = {
+            #     'labels': [random.randint(0, 9) for _ in range(batch_size)],
+            #     'losses': [random.random() for _ in range(batch_size)],
+            #     'send_time': time.time() # keep send_time for latency calculation
+            # }
             
             if parse_type == "json":
                 data = json.dumps(message)
