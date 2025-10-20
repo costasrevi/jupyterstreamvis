@@ -41,7 +41,7 @@ class pykafka_connector(threading.Thread):
                  queued_max_messages: int = 2000, fetch_min_bytes: int = 1,
                  consumer_timeout_ms: int = -1, decode: str = "utf-8",
                  scema_path: str = None, random_sampling: int = None, countmin_width: int = None,
-                 countmin_depth: int = None, parser_extra=None, probuf_message=None, zookeeper_hosts:str='127.0.0.1:2181', twapi_instance=None):
+                 countmin_depth: int = None, twapi_instance=None, parser_extra=None, probuf_message=None, zookeeper_hosts:str='127.0.0.1:2181'):
         """
         Initializes the pykafka_connector.
 
@@ -101,11 +101,8 @@ class pykafka_connector(threading.Thread):
         self.consumer_timeout_ms = consumer_timeout_ms
         self.zookeeper_hosts = zookeeper_hosts
 
+        # twapi integration
         self.twapi_instance = twapi_instance
-        if self.twapi_instance:
-            logging.info("pykafka_connector: Initialized with twapi_instance.")
-        else:
-            logging.warning("pykafka_connector: Initialized WITHOUT twapi_instance.")
         self.latencies = []
         self.received_count = 0
         self.last_report_time = time.time()
@@ -190,19 +187,13 @@ class pykafka_connector(threading.Thread):
 
             # Add the parsed message to the queue if it's not full
             if not self.data.full():
-                logging.debug("pykafka_connector: Checking conditions to enable button.")
-                if not self.first_message_sent and self.twapi_instance and not self.twapi_instance.first_message_received:
-                    logging.info("pykafka_connector: First message received, enabling apply buttons.")
-                    self.twapi_instance.enable_apply_buttons()
-                    self.twapi_instance.first_message_received = True
-                    self.twapi_instance.apply_with_debounce()
-                else:
-                    logging.debug(f"pykafka_connector: Button not enabled. Conditions: "
-                                  f"first_message_sent={self.first_message_sent}, "
-                                  f"has_twapi_instance={bool(self.twapi_instance)}, "
-                                  f"twapi_first_message_received={self.twapi_instance.first_message_received if self.twapi_instance else 'N/A'}")
-
                 self.data.put(parsed_message, block=False)
+                # Notify the twapi_instance on the first message
+                if not self.first_message_sent and self.twapi_instance:
+                    logging.info("First message received, enabling apply button.")
+                    self.twapi_instance.enable_apply_button()
+                    self.twapi_instance.apply_with_debounce()
+                    self.first_message_sent = True
             else:
                 logging.warning("Queue is full, dropping message.")
 
@@ -252,7 +243,6 @@ class pykafka_connector(threading.Thread):
             if self._quit.is_set():
                 break
             if message is not None:
-                logging.debug("pykafka_connector: Message received from Kafka.")
                 self.process_message(message.value)
         
         consumer.stop()
@@ -275,7 +265,7 @@ class pykafka_connector(threading.Thread):
             # --- BENCHMARK REPORTING ---
             current_time = time.time()
             if current_time - self.last_report_time > 5.0: # Report every 5 seconds
-                if self.twapi_instance and self.latencies:
+                if self.latencies:
                     avg_latency = sum(self.latencies) / len(self.latencies)
                     max_latency = max(self.latencies)
                     min_latency = min(self.latencies)
@@ -288,7 +278,9 @@ class pykafka_connector(threading.Thread):
                                  f"Min: {min_latency*1000:.2f}, "
                                  f"Max: {max_latency*1000:.2f}")
                     
-                    self.twapi_instance.update_metrics(stats_str)
+                    # Update the TensorWatch API with the latest metrics
+                    if self.twapi_instance:
+                        self.twapi_instance.update_metrics(stats_str)
 
                     # Reset stats for the next interval
                     self.latencies = []

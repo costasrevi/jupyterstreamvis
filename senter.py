@@ -10,7 +10,7 @@ def main():
     """
     try:
         client = KafkaClient(hosts="127.0.0.1:9093")
-        topic = client.topics['gemini4']
+        topic = client.topics['presentation']
     except Exception as e:
         print(f"Failed to connect to Kafka: {e}")
         sys.exit(1)

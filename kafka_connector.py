@@ -174,7 +174,7 @@ class KafkaConnector(threading.Thread):
                 # Notify the twapi_instance on the first message
                 if not self.first_message_sent and self.twapi_instance:
                     logging.info("First message received, enabling apply button.")
-                    self.twapi_instance.enable_apply_buttons()
+                    self.twapi_instance.enable_apply_button()
                     self.twapi_instance.apply_with_debounce()
                     self.first_message_sent = True
             elif self.data.full():
