@@ -1,6 +1,6 @@
-import tensorwatch as tw
-from . import kafka_connector as kc
-from . import pykafka_connector as pyc
+import tensorwatchext as tw
+from tensorwatchext import kafka_connector as kc
+from tensorwatchext import pykafka_connector as pyc
 from IPython.display import display
 from ipywidgets import widgets
 import asyncio
@@ -82,7 +82,7 @@ class twapi:
 
             # Close previous visualizer if it exists to free resources
             if self.visualizer:
-                self.visualizer.close()
+                # self.visualizer.close()
                 plt.close('all') # Also close any lingering matplotlib figures
 
             # Create a new visualizer with the current settings
@@ -175,17 +175,17 @@ class twapi:
             A KafkaConnector or pykafka_connector instance.
         """
         if conn_type == "kafka":
-            return kc.KafkaConnector(
-                topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,
-                twapi_instance=self, queue_length=queue_length, group_id=group_id,
+            return kc(
+                topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size, queue_length=queue_length, group_id=group_id,
                 avro_schema=avro_schema, schema_path=schema_path, protobuf_message=protobuf_message,
                 random_sampling=random_sampling, countmin_width=countmin_width,
-                countmin_depth=countmin_depth)
+                countmin_depth=countmin_depth,
+                twapi_instance=self)
         elif conn_type == "pykafka":
-            return pyc.pykafka_connector(
+            return pyc(
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,twapi_instance=self, 
                 queue_length=queue_length, consumer_group=bytes(group_id, 'utf-8'),
-                parser_extra=parser_extra, scema_path=schema_path, probuf_message=protobuf_message,
+                parser_extra=parser_extra, schema_path=schema_path, protobuf_message=protobuf_message,
                 random_sampling=random_sampling, countmin_width=countmin_width,
                 countmin_depth=countmin_depth)
         else:
