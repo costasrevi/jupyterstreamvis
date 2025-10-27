@@ -4,8 +4,8 @@ from tensorwatchext import pykafka_connector as pyc
 from IPython.display import display
 from ipywidgets import widgets
 import matplotlib.pyplot as plt
-import time
 import asyncio
+import time
 
 # ----------------------------- STREAM UNIT -----------------------------
 class StreamUnit:
@@ -21,7 +21,7 @@ class StreamUnit:
 
         # Update control
         self.default_value = 10
-        self._last_update = time.time()
+        self._last_update = 0 # Initialize to 0 to ensure first update always happens
         self.update_interval = 0.5  # seconds
 
         # --- Widgets (persistent references) ---
@@ -68,19 +68,21 @@ class StreamUnit:
         self.colorpicker.observe(self.apply_with_debounce, names="value")
 
     def draw(self):
+        # This method is called from the main thread, so direct display is fine.
         display(self.ui)
 
     def apply_with_debounce(self, _=None):
+        # This method is now guaranteed to be called on the main thread
+        # because twapi schedules it with call_soon_threadsafe.
         now = time.time()
-        if now - self._last_update > self.update_interval:
-            self.update_visualizer()
-            self._last_update = now
+        if now - self._last_update > self.update_interval or self._last_update == 0: # Ensure first run
+            self.update_visualizer() # Direct call is safe here
+            self._last_update = now # Update timestamp after successful visualization
 
     def enable_apply_button(self):
         if self.button_apply.disabled:
             self.button_apply.disabled = False
             self.button_apply.description = "Apply"
-            print(f"✅ Apply button enabled for '{self.name}'")
 
     def reset(self, _=None):
         """Reset UI controls (does not close visualizer)."""
@@ -91,23 +93,14 @@ class StreamUnit:
         self.date_button.value = False
         self.offset_button.value = False
 
-        # Only clear output (visualizer stays)
-        with self.out:
-            self.out.clear_output(wait=True)
-            if self.visualizer:
-                try:
-                    self.visualizer.show()
-                except Exception:
-                    pass
-
-    async def _show_async(self):
-        """Async-safe visualizer show inside Output widget."""
-        with self.out:
+        # Clear output and dispose of the visualizer properly
+        self.out.clear_output(wait=True) # Clear the output area
+        if self.visualizer:
             try:
-                self.visualizer.show()
-                plt.show(block=False)
-            except Exception as e:
-                print(f"Visualizer async error for '{self.name}':", e)
+                plt.close(self.visualizer.fig) # Close the associated matplotlib figure
+            except Exception:
+                pass
+        self.visualizer = None # Ensure visualizer is reset to None
 
     def update_visualizer(self):
         """Create or update visualizer inside the Output widget."""
@@ -115,8 +108,10 @@ class StreamUnit:
             return
 
         # 1. Close the old figure if it exists. This targets the specific plot.
-        if self.visualizer and hasattr(self.visualizer, 'fig'):
-            plt.close(self.visualizer.fig)
+        if self.visualizer:
+            # The tensorwatch.Visualizer itself doesn't have a .close() method.
+            if hasattr(self.visualizer, 'fig'): # Close its matplotlib figure if it exists
+                plt.close(self.visualizer.fig)
         
         # 2. Clear the output widget area for this unit.
         self.out.clear_output(wait=True)
@@ -142,4 +137,6 @@ class StreamUnit:
                 self.visualizer.show()
 
             except Exception as e:
-                print(f"Visualizer error for '{self.name}': {e}")
+                # Log errors to the output widget for visibility
+                with self.out:
+                    print(f"Visualizer error for '{self.name}': {e}")

@@ -3,14 +3,17 @@ from .stream_unit import StreamUnit
 from tensorwatchext import kafka_connector as kc
 from tensorwatchext import pykafka_connector as pyc
 from IPython.display import display
+import asyncio
 from ipywidgets import widgets
-import matplotlib.pyplot as plt
+import time
+
 
 # ----------------------------- TWAPI CONTROLLER -----------------------------
 class twapi:
     """Main controller for connector + multiple stream/draw units."""
 
     def __init__(self):
+        self.loop = asyncio.get_event_loop() # Capture the main event loop
         self.client = tw.WatcherClient()
         self.connector_instance = None
         self.units = {}
@@ -23,13 +26,14 @@ class twapi:
     def enable_apply_button(self):
         # Automatically trigger the first plot draw when the connector is ready.
         self.apply_with_debounce()
+        # Schedule enabling of individual unit buttons on the main thread
         for unit in self.units.values():
-            unit.enable_apply_button()
-        print("✅ Global apply enable: all stream units now active.")
+            self.loop.call_soon_threadsafe(unit.enable_apply_button)
 
     def apply_with_debounce(self, *args, **kwargs):
+        # Schedule apply_with_debounce for each unit on the main thread
         for unit in self.units.values():
-            unit.apply_with_debounce()
+            self.loop.call_soon_threadsafe(unit.apply_with_debounce)
 
     def connector(self, topic, host, conn_type="kafka", **kwargs):
         if self.connector_instance:
@@ -42,7 +46,7 @@ class twapi:
             self.connector_instance = pyc(topic=topic, hosts=host, twapi_instance=self, **kwargs)
         else:
             raise ValueError("Invalid connector type: choose 'kafka' or 'pykafka'")
-        print("Connector created.")
+        # print("Connector created.")
         return self.connector_instance
 
     def add_unit(self,expr, name: str = "default"):
@@ -51,7 +55,7 @@ class twapi:
             return self.units[name]
         unit = StreamUnit(name, expr, self.client)
         self.units[name] = unit
-        print(f"Stream unit '{name}' added.")
+        # print(f"Stream unit '{name}' added.")
         return unit
 
     def draw(self, name: str = "default"):
@@ -67,5 +71,5 @@ class twapi:
 
     def defer_apply(self):
         """Backward-compatible fallback for connectors expecting defer_apply()."""
-        print("⚙️ Deferred apply requested by connector.")
-        self.apply_with_debounce()  # trigger apply button on first message
+        # Schedule apply_with_debounce on the main thread to ensure UI updates are safe.
+        self.loop.call_soon_threadsafe(self.apply_with_debounce)
