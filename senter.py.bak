@@ -9,7 +9,7 @@ def main():
     Benchmark producer to test throughput and latency.
     """
     try:
-        client = KafkaClient(hosts="127.0.0.1:9092")
+        client = KafkaClient(hosts="127.0.0.1:9093")
         topic = client.topics['presentation10']
     except Exception as e:
         print(f"Failed to connect to Kafka: {e}")

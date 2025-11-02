@@ -3,7 +3,6 @@ from tensorwatchext import kafka_connector as kc
 from tensorwatchext import pykafka_connector as pyc
 from IPython.display import display
 from ipywidgets import widgets
-import asyncio
 import time
 import logging
 import matplotlib.pyplot as plt
@@ -121,8 +120,6 @@ class twapi:
         
         # Clear the output and close the visualizer
         self.out.clear_output()
-        if self.visualizer:
-            self.visualizer.close()
         plt.close('all')
         self.visualizer = None
 
@@ -151,7 +148,7 @@ class twapi:
 
     def connector(self, topic, host, parsetype="json", cluster_size=1, conn_type="kafka", queue_length=50000,
                   group_id="mygroup", avro_schema=None, schema_path=None, protobuf_message=None, parser_extra=None,
-                  random_sampling=None, countmin_width=None, countmin_depth=None):
+                  random_sampling=None, countmin_width=None, countmin_depth=None, ordering_field=None):
         """
         Creates and returns a Kafka or PyKafka connector.
 
@@ -178,7 +175,7 @@ class twapi:
             return kc(
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size, queue_length=queue_length, group_id=group_id,
                 avro_schema=avro_schema, schema_path=schema_path, protobuf_message=protobuf_message,
-                random_sampling=random_sampling, countmin_width=countmin_width,
+                random_sampling=random_sampling, countmin_width=countmin_width,ordering_field=ordering_field,
                 countmin_depth=countmin_depth,
                 twapi_instance=self)
         elif conn_type == "pykafka":
@@ -186,12 +183,7 @@ class twapi:
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size,twapi_instance=self, 
                 queue_length=queue_length, consumer_group=bytes(group_id, 'utf-8'),
                 parser_extra=parser_extra, schema_path=schema_path, protobuf_message=protobuf_message,
-                random_sampling=random_sampling, countmin_width=countmin_width,
+                random_sampling=random_sampling, countmin_width=countmin_width,ordering_field=ordering_field,
                 countmin_depth=countmin_depth)
         else:
             raise ValueError("Invalid connector type. Choose 'kafka' or 'pykafka'.")
-
-    async def some_async_function(self):
-        """Example of an async function that can be called."""
-        await asyncio.sleep(1)
-        print("Async function completed")

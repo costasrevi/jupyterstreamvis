@@ -1,0 +1,127 @@
+from confluent_kafka import Producer
+from confluent_kafka.admin import AdminClient, NewTopic, NewPartitions
+import json
+import time
+import random
+import argparse
+import threading
+
+
+def ensure_topic_partitions(hosts, topic_name, num_threads):
+    """
+    Ensures that the topic exists and has at least num_threads partitions.
+    Creates or expands partitions if necessary.
+    """
+    admin = AdminClient({"bootstrap.servers": hosts})
+    metadata = admin.list_topics(timeout=5)
+
+    # Topic exists
+    if topic_name in metadata.topics:
+        current_partitions = len(metadata.topics[topic_name].partitions)
+        print(f"🧩 Topic '{topic_name}' exists with {current_partitions} partition(s).")
+        if current_partitions < num_threads:
+            print(f"🔧 Increasing partitions to {num_threads} to match threads...")
+            fs = admin.create_partitions(
+                {topic_name: NewPartitions(num_threads)}
+            )
+            for topic, f in fs.items():
+                try:
+                    f.result()
+                    print(f"✅ Updated '{topic}' partitions → {num_threads}")
+                except Exception as e:
+                    print(f"⚠️ Could not update partitions: {e}")
+        else:
+            print(f"✅ Topic already has sufficient partitions ({current_partitions}).")
+    else:
+        # Topic does not exist — create it
+        print(f"📦 Creating topic '{topic_name}' with {num_threads} partitions...")
+        new_topic = NewTopic(topic_name, num_partitions=num_threads, replication_factor=1)
+        fs = admin.create_topics([new_topic])
+        for topic, f in fs.items():
+            try:
+                f.result()
+                print(f"✅ Created topic '{topic}' with {num_threads} partitions.")
+            except Exception as e:
+                print(f"❌ Failed to create topic: {e}")
+
+
+def producer_thread_worker(thread_id, hosts, topic_name, num_messages, linger_ms):
+    """
+    Worker function for a single low-latency Kafka producer thread.
+    """
+    conf = {
+        "bootstrap.servers": hosts,
+        "linger.ms": linger_ms,
+        "batch.num.messages": 10,
+        "queue.buffering.max.messages": 10000000,
+        "queue.buffering.max.kbytes": 512000,    
+        "acks": 1,
+        "compression.type": "none",
+        "enable.idempotence": False,
+    }
+
+    producer = Producer(conf)
+    print(f"[Thread-{thread_id}] Connected to Kafka ({hosts}), producing to topic '{topic_name}'.")
+
+    start_time = time.time()
+
+    for i in range(num_messages):
+        seq = (thread_id * num_messages) + i
+        message = {
+            "seq": seq,
+            "send_time": time.time(),
+            "data": random.randint(0, 1000),
+        }
+
+        payload = json.dumps(message)
+        producer.produce(
+            topic=topic_name,
+            key=str(seq),  # consistent partitioning
+            value=payload
+        )
+
+        # Poll producer events (flush internal queue)
+        producer.poll(0)
+
+        if (i + 1) % 50000 == 0:
+            print(f"[Thread-{thread_id}] Produced {i + 1:,} messages...")
+
+    # Final flush
+    producer.flush()
+    duration = time.time() - start_time
+    print(f"[Thread-{thread_id}] Finished sending {num_messages:,} messages in {duration:.2f}s.")
+    return num_messages
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Low-latency Kafka producer benchmark (Confluent client, auto partitions)")
+    parser.add_argument("--hosts", type=str, default="127.0.0.1:9092", help="Kafka broker list")
+    parser.add_argument("--topic", type=str, default="presentation1", help="Kafka topic name")
+    parser.add_argument("--num-threads", type=int, default=1, help="Number of producer threads")
+    parser.add_argument("--num-messages", type=int, default=5000000, help="Messages per thread")
+    parser.add_argument("--linger-ms", type=int, default=1, help="Batch linger time (ms)")
+    args = parser.parse_args()
+
+    print(f"\n⚙️ Ensuring topic '{args.topic}' has at least {args.num_threads} partitions...")
+    ensure_topic_partitions(args.hosts, args.topic, args.num_threads)
+
+    threads = []
+    total_messages = args.num_threads * args.num_messages
+    print(f"\n🚀 Starting {args.num_threads} thread(s), total messages: {total_messages:,}")
+    overall_start = time.time()
+
+    for i in range(args.num_threads):
+        t = threading.Thread(
+            target=producer_thread_worker,
+            args=(i, args.hosts, args.topic, args.num_messages, args.linger_ms)
+        )
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
+
+    total_duration = time.time() - overall_start
+    throughput = total_messages / total_duration
+    print(f"\n📊 Total: {total_messages:,} messages in {total_duration:.2f}s")
+    print(f"⚡ Throughput: {throughput:,.2f} messages/sec")
