@@ -7,7 +7,11 @@ import threading
 
 # Import serialization libraries with error handling
 try:
-    from benchmark_pb2 import BenchmarkMessage
+    # Conditional import: relative for module execution, absolute for script execution.
+    if __package__:
+        from .benchmark_pb2 import BenchmarkMessage
+    else:
+        from benchmark_pb2 import BenchmarkMessage
 except ImportError:
     BenchmarkMessage = None
 

@@ -176,7 +176,7 @@ class twapi:
         if conn_type == "kafka":
             return kc(
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size, queue_length=queue_length, group_id=group_id,
-                 schema_path=schema_path, protobuf_message=protobuf_message,
+                 schema_path=schema_path, protobuf_message=protobuf_message,parser_extra=parser_extra,
                 random_sampling=random_sampling, countmin_width=countmin_width,ordering_field=ordering_field,
                 countmin_depth=countmin_depth,
                 twapi_instance=self)
