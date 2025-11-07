@@ -1,10 +1,25 @@
 from confluent_kafka import Producer
 from confluent_kafka.admin import AdminClient, NewTopic, NewPartitions
-import json
 import time
 import random
 import argparse
 import threading
+
+# Import serialization libraries with error handling
+try:
+    from benchmark_pb2 import BenchmarkMessage
+except ImportError:
+    BenchmarkMessage = None
+
+try:
+    import avro.schema
+    import avro.io
+except ImportError:
+    avro = None
+
+import io
+import pickle
+import json
 
 
 def ensure_topic_partitions(hosts, topic_name, num_threads):
@@ -16,7 +31,7 @@ def ensure_topic_partitions(hosts, topic_name, num_threads):
         print(f"🧩 Topic '{topic_name}' exists with {current_partitions} partition(s).")
         if current_partitions < num_threads:
             print(f"🔧 Increasing partitions to {num_threads} to match threads...")
-            fs = admin.create_partitions({topic_name: NewPartitions(num_threads)})
+            fs = admin.create_partitions([NewPartitions(topic_name, num_threads)])
             for topic, f in fs.items():
                 try:
                     f.result()
@@ -37,7 +52,42 @@ def ensure_topic_partitions(hosts, topic_name, num_threads):
                 print(f"❌ Failed to create topic: {e}")
 
 
-def producer_thread_worker(thread_id, hosts, topic_name, num_messages, linger_ms, target_tps):
+def create_serializer(format_type):
+    """Returns a serialization function based on the specified format."""
+    if format_type == 'protobuf':
+        if not BenchmarkMessage:
+            raise ImportError("Could not import BenchmarkMessage. Please generate it from benchmark.proto.")
+        def serialize(msg_dict):
+            message = BenchmarkMessage()
+            message.seq = msg_dict['seq']
+            message.send_time = msg_dict['send_time']
+            message.data = msg_dict['data']
+            return message.SerializeToString()
+        return serialize
+
+    elif format_type == 'avro':
+        if not avro:
+            raise ImportError("The 'avro' library is required for Avro serialization. Please run 'pip install avro'.")
+        avro_schema_str = """
+        {"namespace": "example.avro", "type": "record", "name": "Benchmark",
+         "fields": [ {"name": "seq", "type": "long"}, {"name": "send_time", "type": "double"}, {"name": "data", "type": "int"} ]}
+        """
+        parsed_schema = avro.schema.make_avsc_object(avro_schema_str)
+        writer = avro.io.DatumWriter(parsed_schema)
+        def serialize(msg_dict):
+            bytes_writer = io.BytesIO()
+            encoder = avro.io.BinaryEncoder(bytes_writer)
+            writer.write(msg_dict, encoder)
+            return bytes_writer.getvalue()
+        return serialize
+
+    elif format_type == 'pickle':
+        return lambda msg_dict: pickle.dumps(msg_dict, protocol=4)
+
+    else: # Default to JSON
+        return lambda msg_dict: json.dumps(msg_dict).encode('utf-8')
+
+def producer_thread_worker(thread_id, hosts, topic_name, num_messages, linger_ms, serializer, target_tps):
     conf = {
         "bootstrap.servers": hosts,
         "linger.ms": linger_ms,
@@ -53,18 +103,13 @@ def producer_thread_worker(thread_id, hosts, topic_name, num_messages, linger_ms
     print(f"[Thread-{thread_id}] Connected to Kafka ({hosts}), producing to topic '{topic_name}'.")
 
     start_time = time.perf_counter()
-    last_time = start_time
     sent = 0
 
     for i in range(num_messages):
         seq = (thread_id * num_messages) + i
-        message = {
-            "seq": seq,
-            "send_time": time.time(),
-            "data": random.randint(0, 1000),
-        }
+        message_dict = {'seq': seq, 'send_time': time.time(), 'data': random.randint(0, 1000)}
+        payload = serializer(message_dict)
 
-        payload = json.dumps(message)
         producer.produce(topic=topic_name, key=str(seq), value=payload)
         producer.poll(0)
 
@@ -88,35 +133,43 @@ def producer_thread_worker(thread_id, hosts, topic_name, num_messages, linger_ms
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Low-latency Kafka producer benchmark (Confluent client, auto partitions)")
+    parser = argparse.ArgumentParser(description="Unified Kafka Producer for various serialization formats.")
     parser.add_argument("--hosts", type=str, default="127.0.0.1:9092", help="Kafka broker list")
-    parser.add_argument("--topic", type=str, default="presentation1", help="Kafka topic name")
+    parser.add_argument("--topic", type=str, default="presentation", help="Kafka topic name")
+    parser.add_argument("--format", type=str, default="protobuf", choices=['protobuf', 'avro', 'pickle', 'json'], help="Serialization format")
     parser.add_argument("--num-threads", type=int, default=1, help="Number of producer threads")
     parser.add_argument("--num-messages", type=int, default=5000000, help="Messages per thread")
     parser.add_argument("--linger-ms", type=int, default=1, help="Batch linger time (ms)")
     parser.add_argument("--target-tps", type=float, default=0, help="Target throughput per thread (messages/sec, 0=unlimited)")
     args = parser.parse_args()
 
-    print(f"\n⚙️ Ensuring topic '{args.topic}' has at least {args.num_threads} partitions...")
-    ensure_topic_partitions(args.hosts, args.topic, args.num_threads)
+    try:
+        print(f"\n⚙️  Serializer: {args.format.upper()}")
+        serializer_func = create_serializer(args.format)
 
-    threads = []
-    total_messages = args.num_threads * args.num_messages
-    print(f"\n🚀 Starting {args.num_threads} thread(s), total messages: {total_messages:,}")
-    overall_start = time.perf_counter()
+        print(f"⚙️  Ensuring topic '{args.topic}' has at least {args.num_threads} partitions...")
+        ensure_topic_partitions(args.hosts, args.topic, args.num_threads)
 
-    for i in range(args.num_threads):
-        t = threading.Thread(
-            target=producer_thread_worker,
-            args=(i, args.hosts, args.topic, args.num_messages, args.linger_ms, args.target_tps)
-        )
-        t.start()
-        threads.append(t)
+        threads = []
+        total_messages = args.num_threads * args.num_messages
+        print(f"\n🚀 Starting {args.num_threads} thread(s) to send {total_messages:,} total messages...")
+        overall_start = time.perf_counter()
 
-    for t in threads:
-        t.join()
+        for i in range(args.num_threads):
+            t = threading.Thread(
+                target=producer_thread_worker,
+                args=(i, args.hosts, args.topic, args.num_messages, args.linger_ms, serializer_func, args.target_tps)
+            )
+            t.start()
+            threads.append(t)
 
-    total_duration = time.perf_counter() - overall_start
-    throughput = total_messages / total_duration
-    print(f"\n📊 Total: {total_messages:,} messages in {total_duration:.2f}s")
-    print(f"⚡ Actual Throughput: {throughput:,.2f} messages/sec")
+        for t in threads:
+            t.join()
+
+        total_duration = time.perf_counter() - overall_start
+        throughput = total_messages / total_duration
+        print(f"\n📊 Total: {total_messages:,} messages sent in {total_duration:.2f}s")
+        print(f"⚡ Aggregate Throughput: {throughput:,.2f} messages/sec")
+
+    except (ImportError, Exception) as e:
+        print(f"\n❌ An error occurred: {e}")

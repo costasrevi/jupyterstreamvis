@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package benchmark;
+
+message BenchmarkMessage {
+  int64 seq = 1;
+  double send_time = 2;
+  int32 data = 3;
+}

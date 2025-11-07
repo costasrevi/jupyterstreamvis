@@ -82,8 +82,11 @@ class twapi:
             # Close previous visualizer if it exists to free resources
             if self.visualizer:
                 # self.visualizer.close()
-                plt.close('all') # Also close any lingering matplotlib figures
-
+                try:    
+                    plt.pause(0.05)
+                    plt.close('all') # Also close any lingering matplotlib figures
+                except Exception:
+                    pass
             # Create a new visualizer with the current settings
             self.visualizer = tw.Visualizer(
                 self.streamdata,
@@ -147,7 +150,7 @@ class twapi:
         self.metrics_label.value = metrics
 
     def connector(self, topic, host, parsetype="json", cluster_size=1, conn_type="kafka", queue_length=50000,
-                  group_id="mygroup", avro_schema=None, schema_path=None, protobuf_message=None, parser_extra=None,
+                  group_id="mygroup", schema_path=None, protobuf_message=None, parser_extra=None,
                   random_sampling=None, countmin_width=None, countmin_depth=None, ordering_field=None):
         """
         Creates and returns a Kafka or PyKafka connector.
@@ -160,7 +163,6 @@ class twapi:
             conn_type (str): The type of connector to use ('kafka' or 'pykafka').
             queue_length (int): The maximum size of the message queue.
             group_id (str): The Kafka consumer group ID.
-            avro_schema (str): The Avro schema for 'kafka' connector.
             schema_path (str): The path to the schema file.
             protobuf_message (str): The name of the Protobuf message class.
             parser_extra (str): Extra data for the parser (e.g., Avro schema for 'pykafka').
@@ -174,7 +176,7 @@ class twapi:
         if conn_type == "kafka":
             return kc(
                 topic=topic, hosts=host, parsetype=parsetype, cluster_size=cluster_size, queue_length=queue_length, group_id=group_id,
-                avro_schema=avro_schema, schema_path=schema_path, protobuf_message=protobuf_message,
+                 schema_path=schema_path, protobuf_message=protobuf_message,
                 random_sampling=random_sampling, countmin_width=countmin_width,ordering_field=ordering_field,
                 countmin_depth=countmin_depth,
                 twapi_instance=self)
